@@ -3,7 +3,7 @@
     "name": "HomeServe Pro",
     "slug": "homeserve-worker",
     "scheme": "homeserveworker",
-    "version": "1.0.2",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
