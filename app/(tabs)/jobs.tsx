@@ -35,6 +35,7 @@ export default function Jobs() {
   const [refreshing, setRefreshing] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [requestsReason, setRequestsReason] = useState<string | null>(null);
   const tabRef = useRef(tab);
   tabRef.current = tab;
 
@@ -59,6 +60,7 @@ export default function Jobs() {
       if (which === 'requests') {
         const { data } = await JobsAPI.pendingRequests();
         setJobs(data.data ?? []);
+        setRequestsReason(data.meta?.reason ?? null);
       } else if (which === 'upcoming') {
         const { data } = await JobsAPI.upcoming();
         setJobs(data.data ?? []);
@@ -169,8 +171,22 @@ export default function Jobs() {
           ListEmptyComponent={
             <EmptyState
               icon="briefcase-outline"
-              title={tab === 'requests' ? 'No new requests' : tab === 'upcoming' ? 'No upcoming jobs' : 'No job history yet'}
-              subtitle={tab === 'requests' ? 'Go online from the Home tab to start receiving job requests.' : undefined}
+              title={
+                tab === 'requests'
+                  ? requestsReason === 'NO_SERVICES_SELECTED'
+                    ? 'No services selected yet'
+                    : 'No new requests nearby'
+                  : tab === 'upcoming'
+                  ? 'No upcoming jobs'
+                  : 'No job history yet'
+              }
+              subtitle={
+                tab === 'requests'
+                  ? requestsReason === 'NO_SERVICES_SELECTED'
+                    ? 'Go to Profile → Skills & Services and select what you offer to start seeing job requests.'
+                    : "Go online from the Home tab, and make sure you're within your service radius of customers."
+                  : undefined
+              }
             />
           }
           renderItem={({ item }) => (

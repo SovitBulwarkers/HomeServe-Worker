@@ -175,7 +175,7 @@ export const CatalogAPI = {
 
 // ---------- Jobs (bookings, from the worker's point of view) ----------
 export const JobsAPI = {
-  pendingRequests: () => api.get<{ data: Job[] }>('/bookings/worker/pending-requests'),
+  pendingRequests: () => api.get<{ data: Job[]; meta?: { reason?: string } }>('/bookings/worker/pending-requests'),
   today: () => api.get<{ data: Job[] }>('/bookings/worker/today'),
   upcoming: () => api.get<{ data: Job[] }>('/bookings/worker/upcoming'),
   myJobs: (status?: JobStatus) =>
