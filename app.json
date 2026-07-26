@@ -32,7 +32,9 @@
       "bundleIdentifier": "com.homeserve.worker",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -55,7 +57,11 @@
       "bundler": "metro"
     },
     "extra": {
-  "router": {}
-}
+      "router": {},
+      "eas": {
+        "projectId": "7e1a2e0a-d863-484d-b808-0be6140582e7"
+      }
+    },
+    "owner": "sovitbulwarkers"
   }
 }
