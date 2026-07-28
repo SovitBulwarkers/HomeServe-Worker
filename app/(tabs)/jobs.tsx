@@ -44,7 +44,15 @@ export default function Jobs() {
   useEffect(() => {
     (async () => {
       try {
-        const { status } = await Location.getForegroundPermissionsAsync();
+        let { status } = await Location.getForegroundPermissionsAsync();
+        // Previously this only CHECKED for existing permission and gave up
+        // if not granted — for a worker who hadn't already granted location
+        // somewhere else in the app (e.g. hasn't gone online yet), the map
+        // preview showed "unavailable" forever, with no way to fix it from
+        // this screen. Now it actually asks.
+        if (status !== 'granted') {
+          ({ status } = await Location.requestForegroundPermissionsAsync());
+        }
         if (status !== 'granted') return;
         const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setMyLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
