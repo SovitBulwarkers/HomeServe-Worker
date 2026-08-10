@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator, ScrollView, Image } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator, ScrollView, Image, Platform, PermissionsAndroid } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +8,7 @@ import { colors, fontSize, fontWeight, spacing, radius, shadow } from '../../src
 import Button from '../../src/components/Button';
 import { useAuth } from '../../src/store/auth-context';
 import { UploadAPI, WorkerAPI, WorkerDocument } from '../../src/api/endpoints';
+import ImagePickerModal from '../../src/components/ImagePickerModal';
 
 interface DocSlot {
   type: string;
@@ -46,73 +47,49 @@ export default function OnboardingDocuments() {
   const [uploadingType, setUploadingType] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        if (Platform.OS === 'android') {
+          await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
+        }
+        await ImagePicker.requestCameraPermissionsAsync();
+      } catch (e) {
+        console.log('Pre-request camera permission error:', e);
+      }
+    })();
+  }, []);
+
   const docFor = (type: string) => existing.find((d) => d.type === type);
   const allUploaded = SLOTS.every((s) => docFor(s.type));
 
-  const captureAndUpload = useCallback(async (slot: DocSlot) => {
-    let result: ImagePicker.ImagePickerResult;
-    if (slot.useCamera) {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Camera permission needed', 'Allow camera access to take your selfie.');
-        return;
-      }
-      result = await ImagePicker.launchCameraAsync({
-        cameraType: slot.useCamera === 'front' ? ImagePicker.CameraType.front : ImagePicker.CameraType.back,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.7,
-      });
-    } else {
-      Alert.alert(
-        `Add ${slot.label}`,
-        'Take a photo or choose one from your gallery',
-        [
-          { text: 'Camera', onPress: () => openCamera(slot) },
-          { text: 'Gallery', onPress: () => openGallery(slot) },
-          { text: 'Cancel', style: 'cancel' },
-        ],
-      );
-      return;
-    }
-    if (result.canceled || !result.assets?.[0]) return;
-    await upload(slot, result.assets[0].uri);
-  }, [existing]);
+  const [selectedSlot, setSelectedSlot] = useState<DocSlot | null>(null);
 
-  const openCamera = async (slot: DocSlot) => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Camera permission needed', 'Allow camera access to take a photo.');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.7, allowsEditing: true });
-    if (result.canceled || !result.assets?.[0]) return;
-    await upload(slot, result.assets[0].uri);
+  const handleSlotPress = (slot: DocSlot) => {
+    setSelectedSlot(slot);
   };
 
-  const openGallery = async (slot: DocSlot) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow photo library access to upload a document.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
-    if (result.canceled || !result.assets?.[0]) return;
-    await upload(slot, result.assets[0].uri);
-  };
-
-  const upload = async (slot: DocSlot, uri: string) => {
+  const handleImagePicked = async (uri: string) => {
+    if (!selectedSlot) return;
+    const slot = selectedSlot;
     setUploadingType(slot.type);
     try {
       const formData = new FormData();
-      formData.append('file', { uri, name: `${slot.type.toLowerCase()}.jpg`, type: 'image/jpeg' } as any);
+      formData.append('file', {
+        uri: Platform.OS === 'android' ? uri : uri.replace('file://', ''),
+        name: `${slot.type.toLowerCase()}.jpg`,
+        type: 'image/jpeg',
+      } as any);
       const { data } = await UploadAPI.uploadImage(formData, 'worker-documents');
-      await WorkerAPI.uploadDocument(slot.type, data.data.url);
-      setExisting((prev) => [...prev.filter((d) => d.type !== slot.type), { id: slot.type, type: slot.type, url: data.data.url, isVerified: false }]);
+      const url = data.data?.url ?? (data as any).url;
+      await WorkerAPI.uploadDocument(slot.type, url);
+      setExisting((prev) => [...prev.filter((d) => d.type !== slot.type), { id: slot.type, type: slot.type, url, isVerified: false }]);
+      Alert.alert('Uploaded', `${slot.label} uploaded successfully.`);
     } catch (e: any) {
       Alert.alert('Upload failed', e?.response?.data?.message || 'Please try again.');
     } finally {
       setUploadingType(null);
+      setSelectedSlot(null);
     }
   };
 
@@ -145,7 +122,7 @@ export default function OnboardingDocuments() {
             const doc = docFor(slot.type);
             const uploading = uploadingType === slot.type;
             return (
-              <Pressable key={slot.type} onPress={() => captureAndUpload(slot)} style={styles.docCard}>
+              <Pressable key={slot.type} onPress={() => handleSlotPress(slot)} style={styles.docCard}>
                 <View style={styles.docThumb}>
                   {doc ? (
                     <Image source={{ uri: doc.url }} style={styles.docThumbImage} />
@@ -177,6 +154,14 @@ export default function OnboardingDocuments() {
           style={{ marginTop: spacing.xxl }}
         />
       </ScrollView>
+      <ImagePickerModal
+        visible={!!selectedSlot}
+        onClose={() => setSelectedSlot(null)}
+        title={selectedSlot ? `Upload ${selectedSlot.label}` : 'Upload Document'}
+        subtitle="Camera capture required for document upload"
+        allowFrontCamera={selectedSlot?.useCamera === 'front'}
+        onImagePicked={handleImagePicked}
+      />
     </SafeAreaView>
   );
 }

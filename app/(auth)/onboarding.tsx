@@ -7,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fontSize, fontWeight, spacing } from '../../src/theme';
 import Button from '../../src/components/Button';
-import { ONBOARDING_KEY } from '../_layout';
+import { ONBOARDING_KEY } from '../../src/constants/storage';
 
 const { width } = Dimensions.get('window');
 
@@ -33,10 +33,17 @@ export default function Onboarding() {
   const router = useRouter();
   const listRef = useRef<FlatList>(null);
   const [index, setIndex] = useState(0);
+  const [finishing, setFinishing] = useState(false);
 
   const finish = async () => {
-    await AsyncStorage.setItem(ONBOARDING_KEY, 'true');
-    router.replace('/(auth)/login');
+    if (finishing) return;
+    setFinishing(true);
+    try {
+      await AsyncStorage.setItem(ONBOARDING_KEY, 'true');
+      router.replace('/(auth)/login');
+    } catch {
+      router.replace('/(auth)/login');
+    }
   };
 
   const next = () => {

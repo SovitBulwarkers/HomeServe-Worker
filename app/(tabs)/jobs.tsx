@@ -10,14 +10,7 @@ import Button from '../../src/components/Button';
 import JobLocationMap from '../../src/components/JobLocationMap';
 import { JobsAPI, Job, JobStatus } from '../../src/api/endpoints';
 
-// Push notifications (Firebase messaging + Notifee) aren't available in
-// Expo Go; guard the import the same way usePushNotifications does so
-// this screen doesn't crash there.
-const isExpoGo = Constants.appOwnership === 'expo';
-let messaging: typeof import('@react-native-firebase/messaging').default | null = null;
-if (!isExpoGo) {
-  messaging = require('@react-native-firebase/messaging').default;
-}
+import messaging from '@react-native-firebase/messaging';
 
 type TabKey = 'requests' | 'upcoming' | 'history';
 

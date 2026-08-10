@@ -3,12 +3,12 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Image, Alert, ActivityIn
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import { colors, fontSize, fontWeight, spacing, shadow } from '../../src/theme';
 import { Input } from '../../src/components/ui';
 import Button from '../../src/components/Button';
 import { useAuth } from '../../src/store/auth-context';
 import { UploadAPI, WorkerAPI } from '../../src/api/endpoints';
+import ImagePickerModal from '../../src/components/ImagePickerModal';
 
 export default function EditProfile() {
   const router = useRouter();
@@ -21,22 +21,20 @@ export default function EditProfile() {
   const [avatar, setAvatar] = useState(worker?.avatar ?? null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showPickerModal, setShowPickerModal] = useState(false);
 
-  const pickAvatar = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow photo library access to change your profile photo.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7, allowsEditing: true, aspect: [1, 1] });
-    if (result.canceled || !result.assets?.[0]) return;
+  const handleAvatarPicked = async (uri: string) => {
     setUploading(true);
     try {
-      const asset = result.assets[0];
       const formData = new FormData();
-      formData.append('file', { uri: asset.uri, name: 'avatar.jpg', type: 'image/jpeg' } as any);
+      formData.append('file', {
+        uri: Platform.OS === 'android' ? uri : uri.replace('file://', ''),
+        name: 'avatar.jpg',
+        type: 'image/jpeg',
+      } as any);
       const { data } = await UploadAPI.uploadImage(formData, 'workers');
-      setAvatar(data.data.url);
+      const url = data.data?.url ?? (data as any).url;
+      setAvatar(url);
     } catch {
       Alert.alert('Upload failed', 'Please try again.');
     } finally {
@@ -79,7 +77,7 @@ export default function EditProfile() {
       </View>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Pressable onPress={pickAvatar} style={styles.avatarWrap}>
+        <Pressable onPress={() => setShowPickerModal(true)} style={styles.avatarWrap}>
           {uploading ? (
             <ActivityIndicator color={colors.primary} />
           ) : avatar ? (
@@ -98,6 +96,15 @@ export default function EditProfile() {
         <Button title="Save changes" onPress={save} loading={saving} style={{ marginTop: spacing.md }} />
       </ScrollView>
       </KeyboardAvoidingView>
+
+      <ImagePickerModal
+        visible={showPickerModal}
+        onClose={() => setShowPickerModal(false)}
+        title="Change Profile Photo"
+        subtitle="Take a live picture with your camera"
+        allowFrontCamera
+        onImagePicked={handleAvatarPicked}
+      />
     </SafeAreaView>
   );
 }

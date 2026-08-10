@@ -133,6 +133,8 @@ export interface Job {
   // Set once the overdue-detection cron flags this job — worker app shows
   // a warning banner when this is present.
   overdueFlaggedAt?: string | null;
+  proofBeforePhotos?: string[];
+  proofAfterPhotos?: string[];
 }
 
 // ---------- Auth ----------
@@ -148,7 +150,11 @@ export const WorkerAPI = {
   getProfile: () => api.get<{ data: Worker }>('/workers/profile'),
   updateProfile: (data: Partial<Pick<Worker, 'name' | 'email' | 'avatar' | 'bio' | 'experience' | 'serviceRadius'>>) =>
     api.put('/workers/profile', data),
-  updateFcmToken: (fcmToken: string) => api.put('/workers/fcm-token', { fcmToken }),
+  updateFcmToken: (fcmToken: string) =>
+    api.put('/users/fcm-token', { fcmToken })
+      .catch(() => api.put('/workers/profile', { fcmToken, fcm_token: fcmToken }))
+      .catch(() => api.put('/workers/fcm-token', { fcmToken }))
+      .catch(() => api.post('/workers/fcm-token', { fcmToken })),
   updateLocation: (latitude: number, longitude: number) =>
     api.put('/workers/location', { latitude, longitude }),
   setOnlineStatus: (isOnline: boolean) => api.put('/workers/status', { isOnline }),
@@ -183,9 +189,14 @@ export const JobsAPI = {
   getById: (id: string) => api.get<{ data: Job }>(`/bookings/${id}`),
   accept: (id: string) => api.put(`/bookings/${id}/accept`),
   reject: (id: string) => api.put(`/bookings/${id}/reject`),
-  start: (id: string) => api.put(`/bookings/${id}/start`),
+  start: (id: string, otp: string) => api.put(`/bookings/${id}/start`, { otp }),
   complete: (id: string) => api.put(`/bookings/${id}/complete`),
   cancel: (id: string, reason: string) => api.put(`/bookings/${id}/cancel`, { reason }),
+  addWorkProof: (id: string, stage: 'before' | 'after', urls: string[]) =>
+    api.post<{ data: { proofBeforePhotos: string[]; proofAfterPhotos: string[] } }>(
+      `/bookings/${id}/proof`,
+      { stage, urls },
+    ),
 };
 
 // ---------- Chat ----------
@@ -256,6 +267,16 @@ export const WalletAPI = {
       };
     }>('/wallet/worker/earnings', { params: { period } }),
   withdraw: (amount: number) => api.post('/wallet/worker/withdraw', { amount }),
+  createSettleDebtOrder: () =>
+    api.post<{
+      data: { orderId: string; amount: number; currency: string; keyId: string; owed: number };
+    }>('/wallet/worker/settle-debt/order'),
+  verifySettleDebt: (dto: {
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    razorpaySignature: string;
+    amount: number;
+  }) => api.post<{ data: { balance: number } }>('/wallet/worker/settle-debt/verify', dto),
 };
 
 // ---------- Notifications ----------

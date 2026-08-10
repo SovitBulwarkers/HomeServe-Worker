@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { colors, fontSize, fontWeight, spacing, radius } from '../theme';
 
@@ -16,9 +16,11 @@ interface Props {
  * Small embedded map used on a "New Job" request card so a worker can see
  * exactly where the customer is — and how far — before tapping Accept.
  *
- * Renders OpenStreetMap tiles via Leaflet inside a WebView instead of
+ * Renders map tiles via Leaflet inside a WebView instead of
  * react-native-maps' Google provider — this needs no Google Maps API key
- * and no billing account, and has no usage cap or cost.
+ * and no billing account, and has no usage cap or cost. Includes a
+ * street/satellite toggle: street tiles from OpenStreetMap, satellite
+ * tiles from Esri World Imagery — both free, no API key required.
  *
  * Falls back to a plain text message if either point is missing (e.g. the
  * worker hasn't granted location yet), instead of rendering a broken map.
@@ -31,11 +33,23 @@ export default function JobLocationMap({
   distanceKm,
   height = 150,
 }: Props) {
+  const [satellite, setSatellite] = useState(false);
   const hasBoth =
     workerLat != null && workerLng != null && customerLat != null && customerLng != null;
 
+  const effCustomerLat = customerLat ?? 28.6139;
+  const effCustomerLng = customerLng ?? 77.2090;
+  const effWorkerLat = workerLat ?? (effCustomerLat - 0.012);
+  const effWorkerLng = workerLng ?? (effCustomerLng - 0.012);
+
+  const tileUrl = satellite
+    ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const tileAttribution = satellite
+    ? 'Tiles &copy; Esri'
+    : '&copy; OpenStreetMap contributors';
+
   const html = useMemo(() => {
-    if (!hasBoth) return '';
     return `
 <!DOCTYPE html>
 <html>
@@ -51,8 +65,8 @@ export default function JobLocationMap({
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    var worker = [${workerLat}, ${workerLng}];
-    var customer = [${customerLat}, ${customerLng}];
+    var worker = [${effWorkerLat}, ${effWorkerLng}];
+    var customer = [${effCustomerLat}, ${effCustomerLng}];
     var map = L.map('map', {
       zoomControl: false,
       dragging: false,
@@ -63,32 +77,32 @@ export default function JobLocationMap({
       keyboard: false,
       attributionControl: true,
     });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('${tileUrl}', {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
+      attribution: '${tileAttribution}'
     }).addTo(map);
 
     var workerIcon = L.divIcon({
       className: '',
-      html: '<div style="width:14px;height:14px;border-radius:50%;background:${colors.primary};border:2px solid white;box-shadow:0 0 2px rgba(0,0,0,0.4);"></div>',
-      iconSize: [14, 14],
+      html: '<div style="width:16px;height:16px;border-radius:50%;background:${colors.primary};border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.4);"></div>',
+      iconSize: [16, 16],
     });
     var customerIcon = L.divIcon({
       className: '',
-      html: '<div style="width:14px;height:14px;border-radius:50%;background:#D92D20;border:2px solid white;box-shadow:0 0 2px rgba(0,0,0,0.4);"></div>',
-      iconSize: [14, 14],
+      html: '<div style="width:16px;height:16px;border-radius:50%;background:#D92D20;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.4);"></div>',
+      iconSize: [16, 16],
     });
 
     L.marker(worker, { icon: workerIcon }).addTo(map).bindTooltip('You');
     L.marker(customer, { icon: customerIcon }).addTo(map).bindTooltip('Customer');
-    L.polyline([worker, customer], { color: '${colors.primary}', weight: 2, dashArray: '6, 6' }).addTo(map);
+    L.polyline([worker, customer], { color: '${colors.primary}', weight: 3, dashArray: '6, 6' }).addTo(map);
 
     var bounds = L.latLngBounds([worker, customer]);
     map.fitBounds(bounds, { padding: [24, 24] });
   </script>
 </body>
 </html>`;
-  }, [hasBoth, workerLat, workerLng, customerLat, customerLng]);
+  }, [effWorkerLat, effWorkerLng, effCustomerLat, effCustomerLng, satellite]);
 
   if (!hasBoth) {
     return (
@@ -105,6 +119,7 @@ export default function JobLocationMap({
   return (
     <View style={[styles.container, { height }]}>
       <WebView
+        key={satellite ? 'satellite' : 'street'}
         source={{ html }}
         style={StyleSheet.absoluteFillObject}
         scrollEnabled={false}
@@ -117,6 +132,9 @@ export default function JobLocationMap({
           <Text style={styles.badgeText}>{distanceKm.toFixed(1)} km away</Text>
         </View>
       ) : null}
+      <Pressable style={styles.satToggle} onPress={() => setSatellite((v) => !v)}>
+        <Text style={styles.satToggleText}>{satellite ? 'Street' : 'Satellite'}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -159,5 +177,24 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
+  },
+  satToggle: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  satToggleText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
   },
 });

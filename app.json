@@ -24,6 +24,13 @@
           "locationAlwaysAndWhenInUsePermission": "HomeServe Pro uses your location to show nearby jobs and share live tracking with customers while a job is in progress."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "HomeServe Pro needs camera access so you can take before/after job-proof photos.",
+          "microphonePermission": false
+        }
+      ],
       "@react-native-firebase/app",
       "@react-native-firebase/messaging"
     ],
@@ -34,7 +41,8 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
-        ]
+        ],
+        "NSCameraUsageDescription": "HomeServe Pro needs camera access so you can take before/after job-proof photos."
       }
     },
     "android": {
@@ -47,9 +55,16 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
+      "edgeToEdgeEnabled": true,
+      "navigationBarColor": "#F5F1EB",
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE"
       ]
     },
     "web": {
@@ -61,7 +76,6 @@
       "eas": {
         "projectId": "7e1a2e0a-d863-484d-b808-0be6140582e7"
       }
-    },
-    "owner": "sovitbulwarkers"
+    }
   }
 }

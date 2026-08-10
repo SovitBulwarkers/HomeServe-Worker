@@ -7,6 +7,7 @@ import { colors, fontSize, fontWeight, spacing, radius } from '../../src/theme';
 import { Card, EmptyState, Input } from '../../src/components/ui';
 import Button from '../../src/components/Button';
 import { WalletAPI, WorkerWallet, Transaction, Earning } from '../../src/api/endpoints';
+import SettleDebtModal from '../../src/components/SettleDebtModal';
 
 type Period = 'today' | 'week' | 'month';
 
@@ -19,6 +20,7 @@ export default function Earnings() {
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawing, setWithdrawing] = useState(false);
+  const [settleOpen, setSettleOpen] = useState(false);
 
   const load = useCallback(async (p: Period) => {
     setLoading(true);
@@ -81,6 +83,21 @@ export default function Earnings() {
               <Text style={styles.balanceValue}>₹{(wallet?.balance ?? 0).toFixed(2)}</Text>
               <Button title="Withdraw to bank" onPress={() => setWithdrawOpen(true)} size="sm" style={{ marginTop: spacing.md }} />
             </Card>
+
+            {wallet && wallet.balance < 0 && (
+              <Card style={styles.debtCard}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <Ionicons name="alert-circle" size={20} color={colors.danger} />
+                  <Text style={styles.debtTitle}>Cash commission owed</Text>
+                </View>
+                <Text style={styles.debtSubtitle}>
+                  You collected cash on a job — ₹{Math.abs(wallet.balance).toFixed(0)} in commission is
+                  owed to HomeServe. Settle it now or it'll be deducted from your next digital-payment
+                  earnings.
+                </Text>
+                <Button title="Settle Now" onPress={() => setSettleOpen(true)} size="sm" style={{ marginTop: spacing.md }} />
+              </Card>
+            )}
 
             <View style={styles.periodRow}>
               {(['today', 'week', 'month'] as Period[]).map((p) => (
@@ -150,6 +167,18 @@ export default function Earnings() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <SettleDebtModal
+        visible={settleOpen}
+        owed={wallet ? Math.abs(wallet.balance) : 0}
+        onClose={() => setSettleOpen(false)}
+        onSettled={(newBalance) => {
+          setSettleOpen(false);
+          setWallet((w) => (w ? { ...w, balance: newBalance } : w));
+          Alert.alert('Settled', 'Your cash commission has been cleared.');
+          load(period);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -159,6 +188,9 @@ const styles = StyleSheet.create({
   heading: { fontSize: fontSize.xxl, fontWeight: fontWeight.extrabold, color: colors.textPrimary, paddingHorizontal: spacing.xxl, paddingTop: spacing.md },
   list: { padding: spacing.xxl, paddingTop: spacing.md, gap: spacing.sm },
   balanceCard: { marginTop: spacing.lg, alignItems: 'center' },
+  debtCard: { marginTop: spacing.md, backgroundColor: colors.dangerLight, borderWidth: 1, borderColor: colors.danger },
+  debtTitle: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: colors.textPrimary },
+  debtSubtitle: { fontSize: fontSize.xs, color: colors.textSecondary, marginTop: spacing.xs },
   balanceLabel: { color: colors.textSecondary, fontSize: fontSize.sm },
   balanceValue: { fontSize: fontSize.display, fontWeight: fontWeight.extrabold, color: colors.textPrimary, marginTop: 4 },
   periodRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xl },

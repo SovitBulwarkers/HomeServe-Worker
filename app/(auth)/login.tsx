@@ -24,8 +24,8 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await sendOtp(fullPhone);
-      router.push({ pathname: '/(auth)/otp', params: { phone: fullPhone } });
+      const devOtp = await sendOtp(fullPhone);
+      router.push({ pathname: '/(auth)/otp', params: { phone: fullPhone, devOtp: devOtp || '' } });
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Could not send OTP. Try again.');
     } finally {

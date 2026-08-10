@@ -1,12 +1,12 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator, FlatList } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator, FlatList, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import { colors, fontSize, fontWeight, spacing, radius } from '../../src/theme';
 import { Card, StatusPill } from '../../src/components/ui';
 import { UploadAPI, WorkerAPI, WorkerDocument } from '../../src/api/endpoints';
+import ImagePickerModal from '../../src/components/ImagePickerModal';
 
 const REQUIRED_DOCS = [
   { type: 'SELFIE', label: 'Live selfie', useCamera: 'front' as const },
@@ -20,6 +20,7 @@ export default function Documents() {
   const [documents, setDocuments] = useState<WorkerDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
+  const [selectedDoc, setSelectedDoc] = useState<typeof REQUIRED_DOCS[0] | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -38,43 +39,27 @@ export default function Documents() {
     }, [load]),
   );
 
-  const uploadDoc = async (type: string, useCamera?: 'front' | 'back') => {
-    let result: ImagePicker.ImagePickerResult;
-    if (useCamera) {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Camera permission needed', 'Allow camera access to take your selfie.');
-        return;
-      }
-      result = await ImagePicker.launchCameraAsync({
-        cameraType: useCamera === 'front' ? ImagePicker.CameraType.front : ImagePicker.CameraType.back,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.7,
-      });
-    } else {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow photo library access to upload documents.');
-        return;
-      }
-      result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
-    }
-    if (result.canceled || !result.assets?.[0]) return;
-
-    setUploadingType(type);
+  const handleImagePicked = async (uri: string) => {
+    if (!selectedDoc) return;
+    const doc = selectedDoc;
+    setUploadingType(doc.type);
     try {
-      const asset = result.assets[0];
       const formData = new FormData();
-      formData.append('file', { uri: asset.uri, name: `${type}.jpg`, type: 'image/jpeg' } as any);
+      formData.append('file', {
+        uri: Platform.OS === 'android' ? uri : uri.replace('file://', ''),
+        name: `${doc.type.toLowerCase()}.jpg`,
+        type: 'image/jpeg',
+      } as any);
       const { data } = await UploadAPI.uploadImage(formData, 'documents');
-      await WorkerAPI.uploadDocument(type, data.data.url);
+      const url = data.data?.url ?? (data as any).url;
+      await WorkerAPI.uploadDocument(doc.type, url);
       await load();
-      Alert.alert('Uploaded', 'Your document was submitted for review.');
+      Alert.alert('Uploaded', `${doc.label} submitted for review.`);
     } catch (e: any) {
       Alert.alert('Upload failed', e?.response?.data?.message || 'Please try again.');
     } finally {
       setUploadingType(null);
+      setSelectedDoc(null);
     }
   };
 
@@ -98,7 +83,7 @@ export default function Documents() {
           renderItem={({ item }) => {
             const existing = documents.find((d) => d.type === item.type);
             return (
-              <Card onPress={() => uploadDoc(item.type, (item as any).useCamera)} style={styles.docCard}>
+              <Card onPress={() => setSelectedDoc(item)} style={styles.docCard}>
                 <Ionicons
                   name={(item as any).useCamera ? 'camera-outline' : 'document-text-outline'}
                   size={22}
@@ -122,6 +107,15 @@ export default function Documents() {
           }}
         />
       )}
+
+      <ImagePickerModal
+        visible={!!selectedDoc}
+        onClose={() => setSelectedDoc(null)}
+        title={selectedDoc ? `Upload ${selectedDoc.label}` : 'Upload Document'}
+        subtitle="Select photo source to upload document"
+        allowFrontCamera={selectedDoc?.useCamera === 'front'}
+        onImagePicked={handleImagePicked}
+      />
     </SafeAreaView>
   );
 }

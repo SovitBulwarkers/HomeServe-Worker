@@ -3,13 +3,17 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform, PermissionsAndroid } from 'react-native';
+import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
+import notifee from '@notifee/react-native';
 import { AuthProvider, useAuth } from '../src/store/auth-context';
 import { colors } from '../src/theme';
 import { usePushNotifications } from '../src/hooks/usePushNotifications';
 import { hasRequiredDocuments } from '../src/lib/worker-verification';
-
-export const ONBOARDING_KEY = 'homeserve_worker_has_onboarded';
+import PermissionsModal from '../src/components/PermissionsModal';
+import { ONBOARDING_KEY, PERMISSIONS_PROMPTED_KEY } from '../src/constants/storage';
+export { ONBOARDING_KEY, PERMISSIONS_PROMPTED_KEY };
 
 function RootNavigation() {
   const { isAuthenticated, isLoading, worker } = useAuth();
@@ -21,6 +25,35 @@ function RootNavigation() {
 
   useEffect(() => {
     AsyncStorage.getItem(ONBOARDING_KEY).then((v) => setHasOnboarded(v === 'true'));
+  }, [segments]);
+
+  // Trigger native system OS permissions (Notifications, Location, Camera) directly from app launch
+  useEffect(() => {
+    (async () => {
+      try {
+        // 1. Push Notifications Permission
+        if (Platform.OS === 'android' && Platform.Version >= 33) {
+          await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+        }
+        if (notifee) {
+          await notifee.requestPermission();
+        }
+
+        // 2. Location Permission
+        if (Platform.OS === 'android') {
+          await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+        }
+        await Location.requestForegroundPermissionsAsync();
+
+        // 3. Camera Permission
+        if (Platform.OS === 'android') {
+          await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
+        }
+        await ImagePicker.requestCameraPermissionsAsync();
+      } catch (e) {
+        console.log('Native permission request on app start error:', e);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -32,9 +65,6 @@ function RootNavigation() {
     const onCreateProfile = segs[0] === '(auth)' && segs[1] === 'create-profile';
     const onDocuments = segs[0] === '(auth)' && segs[1] === 'documents';
     const onPendingApproval = segs[0] === 'pending-approval';
-    // A worker who isn't approved yet can still reach these — re-uploading
-    // documents after a rejection, or reaching out to support — without
-    // being bounced straight back to the pending-approval screen.
     const onAllowedWhileUnapproved = segs[0] === 'profile' || segs[0] === 'support';
 
     if (!hasOnboarded) {
@@ -47,27 +77,16 @@ function RootNavigation() {
       return;
     }
 
-    // Step 1 of registration: name / bio / services haven't been set yet.
     if (worker && !worker.name) {
       if (!onCreateProfile) router.replace('/(auth)/create-profile');
       return;
     }
 
-    // Step 2: profile is filled in but this application was never submitted
-    // with the required verification documents — either a brand-new
-    // worker who hasn't finished onboarding yet, or an older account that
-    // registered before document upload existed. Either way, an admin
-    // can't review an application with nothing to look at, so route them
-    // here before they're allowed to just sit on the "under review" screen.
-    // (Workers who are already APPROVED are left alone — see note below.)
     if (worker && worker.status === 'PENDING' && !hasRequiredDocuments(worker) && !onAllowedWhileUnapproved) {
       if (!onDocuments) router.replace('/(auth)/documents');
       return;
     }
 
-    // Authenticated, profile + documents submitted, but the admin hasn't
-    // approved this worker yet — keep them out of the job-accepting flow
-    // until they're cleared.
     if (worker && worker.status !== 'APPROVED' && !onAllowedWhileUnapproved) {
       if (!onPendingApproval) router.replace('/pending-approval');
       return;

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { AuthAPI, WorkerAPI, Worker } from '../api/endpoints';
-import { TOKEN_KEY, REFRESH_KEY } from '../api/client';
+import { TOKEN_KEY, REFRESH_KEY, setOnUnauthorizedCallback } from '../api/client';
 import { disconnectAllSockets } from '../lib/socket';
 
 interface AuthContextValue {
@@ -9,7 +9,7 @@ interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   isNewWorker: boolean;
-  sendOtp: (phone: string) => Promise<void>;
+  sendOtp: (phone: string) => Promise<string | undefined>;
   verifyOtp: (phone: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshWorker: () => Promise<void>;
@@ -26,6 +26,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const bootstrap = useCallback(async () => {
     try {
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
+      const refreshToken = await SecureStore.getItemAsync(REFRESH_KEY);
+
+      // Sessions created before refresh-token support was added never had a
+      // refresh token saved. Rather than let the access token expire later
+      // and silently fail every API call (breaking notifications, jobs,
+      // earnings, etc. all at once), detect this "legacy session" up front
+      // and force a clean re-login immediately.
+      if (token && !refreshToken) {
+        await SecureStore.deleteItemAsync(TOKEN_KEY);
+        await SecureStore.deleteItemAsync(REFRESH_KEY);
+        setIsLoading(false);
+        return;
+      }
+
       if (token) {
         const { data } = await WorkerAPI.getProfile();
         setWorker(data.data ?? (data as unknown as Worker));
@@ -39,20 +53,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    setOnUnauthorizedCallback(() => {
+      logout();
+    });
     bootstrap();
   }, [bootstrap]);
 
   const sendOtp = async (phone: string) => {
-    await AuthAPI.sendOtp(phone);
+    const { data }: any = await AuthAPI.sendOtp(phone);
+    // Only present in non-production dev-bypass mode — lets the OTP
+    // screen autofill it so testers don't need a real SMS.
+    return data?.otp as string | undefined;
   };
 
   const verifyOtp = async (phone: string, otp: string) => {
     const response: any = await AuthAPI.verifyOtp(phone, otp);
     const auth = response.data.data;
-    const accessToken = auth.token;
+    const accessToken = auth.token ?? auth.accessToken;
+    const refreshToken = auth.refreshToken;
 
     if (accessToken) {
       await SecureStore.setItemAsync(TOKEN_KEY, accessToken);
+    }
+    if (refreshToken) {
+      await SecureStore.setItemAsync(REFRESH_KEY, refreshToken);
     }
 
     setIsNewWorker(!!auth.isNew);

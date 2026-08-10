@@ -18,6 +18,12 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+let onUnauthorizedCallback: (() => void) | null = null;
+
+export function setOnUnauthorizedCallback(cb: () => void) {
+  onUnauthorizedCallback = cb;
+}
+
 api.interceptors.request.use(async (config) => {
   const token = await SecureStore.getItemAsync(TOKEN_KEY);
   if (token) {
@@ -33,7 +39,8 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    // Don't loop on auth endpoints like login or refresh itself
+    if (error.response?.status === 401 && !original._retry && !original.url?.includes('/auth/')) {
       original._retry = true;
 
       if (isRefreshing) {
@@ -51,10 +58,28 @@ api.interceptors.response.use(
 
       isRefreshing = true;
       try {
-        const { data } = await api.post('/auth/refresh');
-        const newToken = data?.data?.token ?? data?.token;
+        const refreshToken = await SecureStore.getItemAsync(REFRESH_KEY);
+        if (!refreshToken) {
+          // Legacy/expired session with no refresh token stored at all —
+          // don't bother round-tripping to the server, just force logout.
+          throw new Error('No refresh token available');
+        }
+        // Call refresh endpoint without sending expired Bearer token in header
+        const res = await axios.post(
+          `${API_BASE_URL}/auth/refresh`,
+          { refreshToken },
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+        const data = res.data;
+        const newToken = data?.data?.token ?? data?.token ?? data?.data?.accessToken ?? data?.accessToken;
+        const newRefreshToken = data?.data?.refreshToken ?? data?.refreshToken;
+
         if (!newToken) throw new Error('No token in refresh response');
         await SecureStore.setItemAsync(TOKEN_KEY, newToken);
+        if (newRefreshToken) {
+          await SecureStore.setItemAsync(REFRESH_KEY, newRefreshToken);
+        }
+
         queue.forEach((cb) => cb(newToken));
         queue = [];
         original.headers.Authorization = `Bearer ${newToken}`;
@@ -64,6 +89,9 @@ api.interceptors.response.use(
         queue = [];
         await SecureStore.deleteItemAsync(TOKEN_KEY);
         await SecureStore.deleteItemAsync(REFRESH_KEY);
+        if (onUnauthorizedCallback) {
+          onUnauthorizedCallback();
+        }
         return Promise.reject(err);
       } finally {
         isRefreshing = false;

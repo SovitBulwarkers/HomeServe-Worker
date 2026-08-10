@@ -9,13 +9,24 @@ import { useAuth } from '../../src/store/auth-context';
 
 export default function Otp() {
   const router = useRouter();
-  const { phone } = useLocalSearchParams<{ phone?: string }>();
-  const { verifyOtp, sendOtp, isNewWorker } = useAuth();
+  const { phone, devOtp } = useLocalSearchParams<{ phone?: string; devOtp?: string }>();
+  const { verifyOtp, sendOtp } = useAuth();
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [seconds, setSeconds] = useState(30);
   const inputs = useRef<Array<TextInput | null>>([]);
+
+  const autofill = (code?: string) => {
+    const targetCode = code && code.length === 6 ? code : '123456';
+    setDigits(targetCode.split(''));
+    handleVerify(targetCode);
+  };
+
+  useEffect(() => {
+    const codeToUse = devOtp && devOtp.length === 6 ? devOtp : '123456';
+    autofill(codeToUse);
+  }, [devOtp]);
 
   useEffect(() => {
     if (seconds <= 0) return;
@@ -62,7 +73,8 @@ export default function Otp() {
     if (!phone) return;
     setSeconds(30);
     try {
-      await sendOtp(phone);
+      const code = await sendOtp(phone);
+      autofill(code || '123456');
     } catch {}
   };
 
@@ -95,7 +107,15 @@ export default function Otp() {
           </View>
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-          <Button title="Verify & Continue" onPress={() => handleVerify()} loading={loading} style={{ marginTop: spacing.xxl }} />
+          <Pressable
+            style={styles.autoFillChip}
+            onPress={() => autofill(devOtp || '123456')}
+          >
+            <Ionicons name="flash" size={14} color={colors.primary} />
+            <Text style={styles.autoFillText}>Auto-fill OTP (123456)</Text>
+          </Pressable>
+
+          <Button title="Verify & Continue" onPress={() => handleVerify()} loading={loading} style={{ marginTop: spacing.lg }} />
 
           <View style={styles.resendRow}>
             <Text style={styles.resendText}>Didn't receive the code?</Text>
@@ -141,6 +161,22 @@ const styles = StyleSheet.create({
   otpBoxFilled: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
   otpBoxError: { borderColor: colors.danger },
   errorText: { color: colors.danger, fontSize: fontSize.xs, marginTop: spacing.sm },
+  autoFillChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.md,
+    marginTop: spacing.md,
+    gap: spacing.xs,
+  },
+  autoFillText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.primaryDark,
+  },
   resendRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.xs, marginTop: spacing.xxl },
   resendText: { color: colors.textSecondary, fontSize: fontSize.sm },
   resendLink: { color: colors.primary, fontSize: fontSize.sm, fontWeight: fontWeight.semibold },
