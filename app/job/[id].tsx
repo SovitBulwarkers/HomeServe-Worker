@@ -415,6 +415,7 @@ export default function JobDetail() {
       />
 
       {/* Start Job OTP Modal */}
+      {startModalVisible && (
       <Modal
         visible={startModalVisible}
         transparent
@@ -494,8 +495,10 @@ export default function JobDetail() {
           </Pressable>
         </Pressable>
       </Modal>
+      )}
 
       {/* Missing After Photo Modal Prompt */}
+      {missingAfterModalVisible && (
       <Modal
         visible={missingAfterModalVisible}
         transparent
@@ -537,8 +540,10 @@ export default function JobDetail() {
           </Pressable>
         </Pressable>
       </Modal>
+      )}
 
       {/* Clean & Simple Complete Job Modal */}
+      {completeModalVisible && (
       <Modal
         visible={completeModalVisible}
         transparent
@@ -577,6 +582,7 @@ export default function JobDetail() {
           </Pressable>
         </Pressable>
       </Modal>
+      )}
     </SafeAreaView>
   );
 }
