@@ -1,6 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
-  Modal,
   View,
   Text,
   StyleSheet,
@@ -9,6 +8,7 @@ import {
   Platform,
   Linking,
   PermissionsAndroid,
+  BackHandler,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -33,8 +33,21 @@ export default function ImagePickerModal({
   allowFrontCamera = false,
 }: ImagePickerModalProps) {
 
+  // Plain View instead of RN <Modal> means the hardware back button no
+  // longer closes this automatically — wire it up manually.
+  useEffect(() => {
+    if (!visible || Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
+
   const handleCamera = () => {
     onClose();
+    // No native <Modal> teardown to race against anymore — this run-loop
+    // tick just lets the overlay unmount before the camera Activity launches.
     setTimeout(async () => {
       try {
         let granted = false;
@@ -78,13 +91,16 @@ export default function ImagePickerModal({
     }, 250);
   };
 
+  // Deliberately NOT wrapped in RN's <Modal>. Modal is backed by a native
+  // Android Dialog window; launching the camera Activity while that
+  // window is still tearing down races with it and the OS silently
+  // cancels the camera intent (symptom: sheet closes, nothing else
+  // happens). A plain absolutely-positioned overlay has no native window
+  // to conflict with, so the camera opens reliably every time.
+  if (!visible) return null;
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
+    <View style={styles.overlayRoot} pointerEvents="box-none">
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
           <View style={styles.handleBar} />
@@ -123,11 +139,16 @@ export default function ImagePickerModal({
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  overlayRoot: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 1000,
+  },
   backdrop: {
     flex: 1,
     backgroundColor: colors.overlay,

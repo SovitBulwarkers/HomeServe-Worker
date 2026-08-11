@@ -1,4 +1,4 @@
-import api from './client';
+import api from "./client";
 
 // ---------- Shared types ----------
 export interface WorkerSkill {
@@ -36,7 +36,7 @@ export interface Worker {
   name?: string | null;
   avatar?: string | null;
   bio?: string | null;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+  status: "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED";
   isActive: boolean;
   isOnline: boolean;
   isBlocked: boolean;
@@ -92,12 +92,12 @@ export interface JobAddress {
 }
 
 export type JobStatus =
-  | 'PENDING'
-  | 'ACCEPTED'
-  | 'REJECTED'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'CANCELLED';
+  | "PENDING"
+  | "ACCEPTED"
+  | "REJECTED"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "CANCELLED";
 
 export interface JobItem {
   id: string;
@@ -139,64 +139,83 @@ export interface Job {
 
 // ---------- Auth ----------
 export const AuthAPI = {
-  sendOtp: (phone: string) => api.post('/auth/send-otp', { phone, role: 'WORKER' }),
+  sendOtp: (phone: string) =>
+    api.post("/auth/send-otp", { phone, role: "WORKER" }),
   verifyOtp: (phone: string, otp: string) =>
-    api.post('/auth/verify-otp', { phone, otp, role: 'WORKER' }),
-  me: () => api.get('/auth/me'),
+    api.post("/auth/verify-otp", { phone, otp, role: "WORKER" }),
+  me: () => api.get("/auth/me"),
 };
 
 // ---------- Worker profile ----------
 export const WorkerAPI = {
-  getProfile: () => api.get<{ data: Worker }>('/workers/profile'),
-  updateProfile: (data: Partial<Pick<Worker, 'name' | 'email' | 'avatar' | 'bio' | 'experience' | 'serviceRadius'>>) =>
-    api.put('/workers/profile', data),
+  getProfile: () => api.get<{ data: Worker }>("/workers/profile"),
+  updateProfile: (
+    data: Partial<
+      Pick<
+        Worker,
+        "name" | "email" | "avatar" | "bio" | "experience" | "serviceRadius"
+      >
+    >,
+  ) => api.put("/workers/profile", data),
   updateFcmToken: (fcmToken: string) =>
-    api.put('/users/fcm-token', { fcmToken })
-      .catch(() => api.put('/workers/profile', { fcmToken, fcm_token: fcmToken }))
-      .catch(() => api.put('/workers/fcm-token', { fcmToken }))
-      .catch(() => api.post('/workers/fcm-token', { fcmToken })),
+    api.put("/users/fcm-token", { fcmToken }),
   updateLocation: (latitude: number, longitude: number) =>
-    api.put('/workers/location', { latitude, longitude }),
-  setOnlineStatus: (isOnline: boolean) => api.put('/workers/status', { isOnline }),
-  getDocuments: () => api.get<{ data: WorkerDocument[] }>('/workers/documents'),
-  uploadDocument: (type: string, url: string) => api.post('/workers/documents', { type, url }),
-  updateBankDetails: (data: BankDetail) => api.put('/workers/bank-details', data),
-  updateSkills: (skills: string[]) => api.put('/workers/skills', { skills }),
-  updateServices: (serviceIds: string[]) => api.put('/workers/services', { serviceIds }),
-  getWorkingHours: () => api.get('/workers/working-hours'),
-  setWorkingHours: (hours: { dayOfWeek: number; startTime: string; endTime: string; isOff: boolean }[]) =>
-    api.put('/workers/working-hours', { hours }),
+    api.put("/workers/location", { latitude, longitude }),
+  setOnlineStatus: (isOnline: boolean) =>
+    api.put("/workers/status", { isOnline }),
+  getDocuments: () => api.get<{ data: WorkerDocument[] }>("/workers/documents"),
+  uploadDocument: (type: string, url: string) =>
+    api.post("/workers/documents", { type, url }),
+  updateBankDetails: (data: BankDetail) =>
+    api.put("/workers/bank-details", data),
+  updateSkills: (skills: string[]) => api.put("/workers/skills", { skills }),
+  updateServices: (serviceIds: string[]) =>
+    api.put("/workers/services", { serviceIds }),
+  getWorkingHours: () => api.get("/workers/working-hours"),
+  setWorkingHours: (
+    hours: {
+      dayOfWeek: number;
+      startTime: string;
+      endTime: string;
+      isOff: boolean;
+    }[],
+  ) => api.put("/workers/working-hours", { hours }),
   setAvailability: (date: string, isOff: boolean) =>
-    api.post('/workers/availability', { date, isOff }),
+    api.post("/workers/availability", { date, isOff }),
   getReviews: (workerId: string, page = 1, limit = 10) =>
     api.get(`/workers/${workerId}/reviews`, { params: { page, limit } }),
 };
 
 // ---------- Categories & Services (for choosing which services a worker offers) ----------
 export const CatalogAPI = {
-  getCategories: () => api.get<{ data: Category[] }>('/categories'),
+  getCategories: () => api.get<{ data: Category[] }>("/categories"),
   getServices: (params?: { categoryId?: string; search?: string }) =>
-    api.get<{ data: Service[] }>('/services', { params }),
+    api.get<{ data: Service[] }>("/services", { params }),
 };
 
 // ---------- Jobs (bookings, from the worker's point of view) ----------
 export const JobsAPI = {
-  pendingRequests: () => api.get<{ data: Job[]; meta?: { reason?: string } }>('/bookings/worker/pending-requests'),
-  today: () => api.get<{ data: Job[] }>('/bookings/worker/today'),
-  upcoming: () => api.get<{ data: Job[] }>('/bookings/worker/upcoming'),
+  pendingRequests: () =>
+    api.get<{ data: Job[]; meta?: { reason?: string } }>(
+      "/bookings/worker/pending-requests",
+    ),
+  today: () => api.get<{ data: Job[] }>("/bookings/worker/today"),
+  upcoming: () => api.get<{ data: Job[] }>("/bookings/worker/upcoming"),
   myJobs: (status?: JobStatus) =>
-    api.get<{ data: Job[] }>('/bookings/worker/my', { params: status ? { status } : undefined }),
+    api.get<{ data: Job[] }>("/bookings/worker/my", {
+      params: status ? { status } : undefined,
+    }),
   getById: (id: string) => api.get<{ data: Job }>(`/bookings/${id}`),
   accept: (id: string) => api.put(`/bookings/${id}/accept`),
   reject: (id: string) => api.put(`/bookings/${id}/reject`),
   start: (id: string, otp: string) => api.put(`/bookings/${id}/start`, { otp }),
   complete: (id: string) => api.put(`/bookings/${id}/complete`),
-  cancel: (id: string, reason: string) => api.put(`/bookings/${id}/cancel`, { reason }),
-  addWorkProof: (id: string, stage: 'before' | 'after', urls: string[]) =>
-    api.post<{ data: { proofBeforePhotos: string[]; proofAfterPhotos: string[] } }>(
-      `/bookings/${id}/proof`,
-      { stage, urls },
-    ),
+  cancel: (id: string, reason: string) =>
+    api.put(`/bookings/${id}/cancel`, { reason }),
+  addWorkProof: (id: string, stage: "before" | "after", urls: string[]) =>
+    api.post<{
+      data: { proofBeforePhotos: string[]; proofAfterPhotos: string[] };
+    }>(`/bookings/${id}/proof`, { stage, urls }),
 };
 
 // ---------- Chat ----------
@@ -218,9 +237,12 @@ export interface BookingChatSummary {
 }
 
 export const ChatAPI = {
-  getBookingChats: () => api.get<{ data: BookingChatSummary[] }>('/chat/bookings'),
+  getBookingChats: () =>
+    api.get<{ data: BookingChatSummary[] }>("/chat/bookings"),
   getMessages: (bookingId: string, page = 1, limit = 50) =>
-    api.get<{ data: ChatMessage[] }>(`/chat/${bookingId}/messages`, { params: { page, limit } }),
+    api.get<{ data: ChatMessage[] }>(`/chat/${bookingId}/messages`, {
+      params: { page, limit },
+    }),
   sendMessage: (bookingId: string, message: string) =>
     api.post<{ data: ChatMessage }>(`/chat/${bookingId}/messages`, { message }),
   getUnreadCount: (bookingId: string) => api.get(`/chat/${bookingId}/unread`),
@@ -229,7 +251,7 @@ export const ChatAPI = {
 // ---------- Wallet & Earnings ----------
 export interface Transaction {
   id: string;
-  type: 'CREDIT' | 'DEBIT';
+  type: "CREDIT" | "DEBIT";
   amount: number;
   description: string;
   referenceId?: string | null;
@@ -252,10 +274,10 @@ export interface Earning {
 }
 
 export const WalletAPI = {
-  getWallet: () => api.get<{ data: WorkerWallet }>('/wallet/worker'),
+  getWallet: () => api.get<{ data: WorkerWallet }>("/wallet/worker"),
   getTransactions: (page = 1, limit = 20) =>
-    api.get('/wallet/worker/transactions', { params: { page, limit } }),
-  getEarnings: (period: 'today' | 'week' | 'month' = 'today') =>
+    api.get("/wallet/worker/transactions", { params: { page, limit } }),
+  getEarnings: (period: "today" | "week" | "month" = "today") =>
     api.get<{
       data: {
         period: string;
@@ -265,18 +287,28 @@ export const WalletAPI = {
         totalJobs: number;
         earnings: Earning[];
       };
-    }>('/wallet/worker/earnings', { params: { period } }),
-  withdraw: (amount: number) => api.post('/wallet/worker/withdraw', { amount }),
+    }>("/wallet/worker/earnings", { params: { period } }),
+  withdraw: (amount: number) => api.post("/wallet/worker/withdraw", { amount }),
   createSettleDebtOrder: () =>
     api.post<{
-      data: { orderId: string; amount: number; currency: string; keyId: string; owed: number };
-    }>('/wallet/worker/settle-debt/order'),
+      data: {
+        orderId: string;
+        amount: number;
+        currency: string;
+        keyId: string;
+        owed: number;
+      };
+    }>("/wallet/worker/settle-debt/order"),
   verifySettleDebt: (dto: {
     razorpayOrderId: string;
     razorpayPaymentId: string;
     razorpaySignature: string;
     amount: number;
-  }) => api.post<{ data: { balance: number } }>('/wallet/worker/settle-debt/verify', dto),
+  }) =>
+    api.post<{ data: { balance: number } }>(
+      "/wallet/worker/settle-debt/verify",
+      dto,
+    ),
 };
 
 // ---------- Notifications ----------
@@ -292,29 +324,33 @@ export interface AppNotification {
 
 export const NotificationAPI = {
   getAll: (page = 1, limit = 20) =>
-    api.get<{ data: { notifications: AppNotification[]; total: number; unreadCount: number } }>(
-      '/notifications',
-      { params: { page, limit } },
-    ),
+    api.get<{
+      data: {
+        notifications: AppNotification[];
+        total: number;
+        unreadCount: number;
+      };
+    }>("/notifications", { params: { page, limit } }),
   markRead: (id: string) => api.put(`/notifications/${id}/read`),
-  markAllRead: () => api.put('/notifications/read-all'),
+  markAllRead: () => api.put("/notifications/read-all"),
 };
 
 // ---------- Support ----------
 export const SupportAPI = {
-  getFaq: () => api.get('/support/faq'),
+  getFaq: () => api.get("/support/faq"),
   createTicket: (data: { subject: string; description: string }) =>
-    api.post('/support/tickets', data),
-  myTickets: () => api.get('/support/tickets'),
+    api.post("/support/tickets", data),
+  myTickets: () => api.get("/support/tickets"),
   getTicket: (id: string) => api.get(`/support/tickets/${id}`),
-  reply: (id: string, message: string) => api.post(`/support/tickets/${id}/reply`, { message }),
+  reply: (id: string, message: string) =>
+    api.post(`/support/tickets/${id}/reply`, { message }),
 };
 
 // ---------- Upload ----------
 export const UploadAPI = {
-  uploadImage: (formData: FormData, folder = 'workers') =>
-    api.post<{ data: { url: string } }>('/upload/single', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+  uploadImage: (formData: FormData, folder = "workers") =>
+    api.post<{ data: { url: string } }>("/upload/single", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
       params: { folder },
     }),
 };
