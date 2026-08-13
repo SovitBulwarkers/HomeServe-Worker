@@ -201,6 +201,11 @@ export default function Jobs() {
                 </Text>
                 <StatusPill label={statusLabel(item.status)} tone={statusTone(item.status)} />
               </View>
+              {item.preferredWorkerId ? (
+                <View style={styles.directRequestPill}>
+                  <Text style={styles.directRequestPillText}>Customer requested you</Text>
+                </View>
+              ) : null}
               <Text style={styles.jobMeta}>
                 {new Date(item.scheduledDate).toLocaleDateString()} · {item.scheduledTime}
               </Text>
@@ -282,4 +287,17 @@ const styles = StyleSheet.create({
     color: colors.danger ?? '#D92D20',
   },
   actionRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  directRequestPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primaryLight ?? '#FDECDA',
+    borderRadius: radius.sm,
+    paddingVertical: 2,
+    paddingHorizontal: spacing.xs,
+    marginTop: 4,
+  },
+  directRequestPillText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
 });

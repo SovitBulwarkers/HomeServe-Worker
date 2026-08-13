@@ -40,6 +40,7 @@ export interface Worker {
   isActive: boolean;
   isOnline: boolean;
   isBlocked: boolean;
+  pausedNewRequests?: boolean;
   rating: number;
   totalReviews: number;
   totalJobs: number;
@@ -68,6 +69,13 @@ export interface Service {
   basePrice?: number;
   image?: string;
   categoryId: string;
+  // Real, admin-configured duration range and price-breakdown checklist —
+  // same fields the customer app shows on the service detail screen.
+  // Empty/undefined unless an admin has actually filled them in.
+  duration?: number;
+  durationMaxMinutes?: number | null;
+  includedItems?: string[];
+  excludedItems?: string[];
 }
 
 // Customer fields are optional/nullable because the backend redacts phone
@@ -133,8 +141,30 @@ export interface Job {
   // Set once the overdue-detection cron flags this job — worker app shows
   // a warning banner when this is present.
   overdueFlaggedAt?: string | null;
+  runningLateMinutes?: number | null;
+  runningLateReason?: string | null;
+  // Set only on a direct request — the customer picked this worker's
+  // profile specifically rather than letting the job broadcast to the
+  // open pool. Shown as a "Customer requested you" badge.
+  preferredWorkerId?: string | null;
+  // >0 means this job was auto-reassigned after a previous worker
+  // accepted and never showed up — worth knowing before you head out,
+  // since the customer may already be frustrated by the wait.
+  reassignCount?: number;
+  issueType?: string | null;
+  issueDetail?: string | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
   proofBeforePhotos?: string[];
   proofAfterPhotos?: string[];
+  extraCharges?: {
+    id: string;
+    label: string;
+    amount: number;
+    reason?: string;
+    status: "PENDING" | "APPROVED" | "REJECTED";
+    createdAt: string;
+  }[];
 }
 
 // ---------- Auth ----------
@@ -163,6 +193,10 @@ export const WorkerAPI = {
     api.put("/workers/location", { latitude, longitude }),
   setOnlineStatus: (isOnline: boolean) =>
     api.put("/workers/status", { isOnline }),
+  // Pause/resume NEW job matching without going offline — existing jobs
+  // and live tracking are unaffected.
+  setPausedStatus: (paused: boolean) =>
+    api.put("/workers/pause", { paused }),
   getDocuments: () => api.get<{ data: WorkerDocument[] }>("/workers/documents"),
   uploadDocument: (type: string, url: string) =>
     api.post("/workers/documents", { type, url }),
@@ -184,6 +218,11 @@ export const WorkerAPI = {
     api.post("/workers/availability", { date, isOff }),
   getReviews: (workerId: string, page = 1, limit = 10) =>
     api.get(`/workers/${workerId}/reviews`, { params: { page, limit } }),
+  // Worker's side of a completed job: rate the customer (punctuality, site
+  // access, clarity). Internal signal only — never shown on the
+  // customer's public profile.
+  rateCustomer: (bookingId: string, rating: number, comment?: string) =>
+    api.post('/reviews/customer', { bookingId, rating, comment }),
 };
 
 // ---------- Categories & Services (for choosing which services a worker offers) ----------
@@ -216,7 +255,44 @@ export const JobsAPI = {
     api.post<{
       data: { proofBeforePhotos: string[]; proofAfterPhotos: string[] };
     }>(`/bookings/${id}/proof`, { stage, urls }),
+  // Proactively tell the customer you'll be late, before the system's own
+  // overdue detection would catch it.
+  reportRunningLate: (id: string, minutes: number, reason: string) =>
+    api.post(`/bookings/${id}/running-late`, { minutes, reason }),
+  // Work outside the fixed-price package (gas refill, spare parts, extra
+  // labour, etc.) — creates a PENDING request the customer approves or
+  // rejects in their app. Nothing is added to the total until they do.
+  requestExtraCharge: (
+    id: string,
+    data: { label: string; amount: number; reason?: string },
+  ) => api.post(`/bookings/${id}/extra-charge`, data),
+  // This worker's own real history with a specific customer — past
+  // bookings, ratings *they* gave, any complaint on record. Used to show a
+  // heads-up on an incoming job request, mirroring the warning the
+  // customer app shows before rebooking a worker who did a bad job.
+  getHistoryWithCustomer: (userId: string) =>
+    api.get<{ data: CustomerHistory }>(`/bookings/worker/history/customer/${userId}`),
 };
+
+export interface CustomerHistory {
+  workerId: string;
+  totalBookings: number;
+  completedBookings: number;
+  cancelledBookings: number;
+  averageRatingGiven: number | null;
+  hasComplaint: boolean;
+  complaints: { bookingId: string; rating: number; comment: string; createdAt: string }[];
+  bookings: {
+    id: string;
+    bookingNumber: string;
+    status: string;
+    scheduledDate: string;
+    serviceNames: string[];
+    finalAmount: number;
+    rating: number | null;
+    comment: string | null;
+  }[];
+}
 
 // ---------- Chat ----------
 export interface ChatMessage {

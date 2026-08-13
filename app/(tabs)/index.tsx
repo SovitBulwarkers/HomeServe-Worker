@@ -18,6 +18,8 @@ export default function Dashboard() {
 
   const [isOnline, setIsOnline] = useState(!!worker?.isOnline);
   const [togglingOnline, setTogglingOnline] = useState(false);
+  const [isPaused, setIsPaused] = useState(!!worker?.pausedNewRequests);
+  const [togglingPaused, setTogglingPaused] = useState(false);
   const [todayJobs, setTodayJobs] = useState<Job[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [earningsToday, setEarningsToday] = useState(0);
@@ -60,6 +62,10 @@ export default function Dashboard() {
     setIsOnline(!!worker?.isOnline);
   }, [worker?.isOnline]);
 
+  useEffect(() => {
+    setIsPaused(!!worker?.pausedNewRequests);
+  }, [worker?.pausedNewRequests]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await load();
@@ -88,6 +94,19 @@ export default function Dashboard() {
     }
   };
 
+  const togglePaused = async (next: boolean) => {
+    setTogglingPaused(true);
+    try {
+      await WorkerAPI.setPausedStatus(next);
+      setIsPaused(next);
+      if (worker) setWorker({ ...worker, pausedNewRequests: next });
+    } catch (e: any) {
+      Alert.alert('Could not update status', e?.response?.data?.message || 'Please try again.');
+    } finally {
+      setTogglingPaused(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
@@ -111,6 +130,22 @@ export default function Dashboard() {
           />
           {togglingOnline ? <Text style={styles.updatingText}>Updating…</Text> : null}
         </Card>
+
+        {isOnline ? (
+          <Card style={styles.onlineCard}>
+            <ToggleRow
+              label={isPaused ? 'New requests paused' : 'Accepting new requests'}
+              subtitle={
+                isPaused
+                  ? "You're overloaded — you won't get new job offers, but keep working what's already on your plate."
+                  : 'Pause if you have too much on your plate right now'
+              }
+              value={isPaused}
+              onValueChange={togglePaused}
+            />
+            {togglingPaused ? <Text style={styles.updatingText}>Updating…</Text> : null}
+          </Card>
+        ) : null}
 
         {worker && worker.status === 'APPROVED' && !hasRequiredDocuments(worker) ? (
           <Card onPress={() => router.push('/profile/documents')} style={styles.verifyBanner}>
