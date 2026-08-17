@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View, ActivityIndicator, Platform, PermissionsAndroid } from 'react-native';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
-import notifee from '@notifee/react-native';
+// import notifee from '@notifee/react-native';
 import { AuthProvider, useAuth } from '../src/store/auth-context';
 import { colors } from '../src/theme';
 import { usePushNotifications } from '../src/hooks/usePushNotifications';
@@ -35,8 +35,8 @@ function RootNavigation() {
         if (Platform.OS === 'android' && Platform.Version >= 33) {
           await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
         }
-        if (notifee) {
-          await notifee.requestPermission();
+        if (typeof notifee !== 'undefined' && notifee) {
+          await (notifee as any).requestPermission();
         }
 
         // 2. Location Permission

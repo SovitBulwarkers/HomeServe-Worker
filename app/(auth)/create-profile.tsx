@@ -14,8 +14,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fontSize, fontWeight, spacing, radius, shadow } from '../../src/theme';
-import { Input, Card } from '../../src/components/ui';
+import { colors, fontSize, fontWeight, spacing, radius } from '../../src/theme';
+import { Input } from '../../src/components/ui';
 import Button from '../../src/components/Button';
 import { useAuth } from '../../src/store/auth-context';
 import { CatalogAPI, Category, Service, UploadAPI, WorkerAPI } from '../../src/api/endpoints';
@@ -23,7 +23,7 @@ import ImagePickerModal from '../../src/components/ImagePickerModal';
 
 export default function CreateProfile() {
   const router = useRouter();
-  const { worker, refreshWorker } = useAuth();
+  const { refreshWorker } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -43,10 +43,6 @@ export default function CreateProfile() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Routing between onboarding steps (create-profile → documents →
-  // pending-approval → tabs) is centrally handled in app/_layout.tsx, so
-  // this screen doesn't need its own redirect logic.
-
   useEffect(() => {
     (async () => {
       try {
@@ -55,7 +51,7 @@ export default function CreateProfile() {
         setCategories(cats);
         if (cats.length) setActiveCategory(cats[0].id);
       } catch {
-        // Non-fatal — worker can still complete profile and pick services later.
+        // Non-fatal
       } finally {
         setLoadingCatalog(false);
       }
@@ -98,7 +94,7 @@ export default function CreateProfile() {
       const url = data.data?.url ?? (data as any).url;
       setAvatar(url);
     } catch {
-      Alert.alert('Upload failed', 'Could not upload your photo. You can add one later from your profile.');
+      Alert.alert('Upload failed', 'Could not upload photo.');
     } finally {
       setUploadingAvatar(false);
     }
@@ -110,7 +106,7 @@ export default function CreateProfile() {
       return;
     }
     if (selectedServiceIds.length === 0) {
-      setError('Select at least one service you can perform');
+      setError('Select at least one service you provide');
       return;
     }
     setError('');
@@ -128,7 +124,7 @@ export default function CreateProfile() {
       await refreshWorker();
       router.replace('/(auth)/documents');
     } catch (e: any) {
-      setError(e?.response?.data?.message || 'Could not save your profile. Please try again.');
+      setError(e?.response?.data?.message || 'Could not save profile. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -138,126 +134,191 @@ export default function CreateProfile() {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.heading}>Set up your worker profile</Text>
-        <Text style={styles.subheading}>
-          Customers see this before booking you. Add real details so they know who's coming.
-        </Text>
+          {/* Step Header Indicator */}
+          <View style={styles.topProgressRow}>
+            <Text style={styles.stepText}>Step 1 of 2</Text>
+            <View style={styles.progressTrack}>
+              <View style={styles.progressFill} />
+            </View>
+          </View>
 
-        <Pressable onPress={() => setShowPickerModal(true)} style={styles.avatarWrap}>
-          {uploadingAvatar ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : avatar ? (
-            <Image source={{ uri: avatar }} style={styles.avatarImage} />
-          ) : (
-            <Ionicons name="camera-outline" size={28} color={colors.textMuted} />
-          )}
-        </Pressable>
-        <Text style={styles.avatarHint}>Tap to add a profile photo</Text>
+          <Text style={styles.pageTitle}>Partner Details</Text>
+          <Text style={styles.pageSubtitle}>Set up your public profile to receive local jobs</Text>
 
-        <Input label="Full name" placeholder="e.g. Ramesh Kumar" value={name} onChangeText={setName} />
-        <Input
-          label="Email (optional)"
-          placeholder="you@example.com"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <Input
-          label="Years of experience"
-          placeholder="e.g. 3"
-          keyboardType="number-pad"
-          value={experience}
-          onChangeText={setExperience}
-        />
-        <Input
-          label="Short bio (optional)"
-          placeholder="A line about your work"
-          value={bio}
-          onChangeText={setBio}
-          multiline
-        />
+          {/* Photo Uploader */}
+          <View style={styles.photoRow}>
+            <Pressable onPress={() => setShowPickerModal(true)} style={styles.avatarCircle}>
+              {uploadingAvatar ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : avatar ? (
+                <Image source={{ uri: avatar }} style={styles.avatarImage} />
+              ) : (
+                <Ionicons name="person-outline" size={30} color={colors.textSecondary} />
+              )}
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.photoLabel}>{avatar ? 'Profile Photo Added' : 'Add Profile Photo'}</Text>
+              <Pressable onPress={() => setShowPickerModal(true)}>
+                <Text style={styles.photoActionText}>{avatar ? 'Tap to change' : 'Upload photo'}</Text>
+              </Pressable>
+            </View>
+          </View>
 
-        <Text style={styles.label}>Your skills</Text>
-        <View style={styles.skillInputRow}>
-          <View style={{ flex: 1 }}>
+          {/* Input Fields */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Full Name *</Text>
             <Input
-              placeholder="e.g. Pipe fitting"
-              value={skillInput}
-              onChangeText={setSkillInput}
-              onSubmitEditing={addSkill}
-              returnKeyType="done"
+              placeholder="e.g. Ramesh Kumar"
+              value={name}
+              onChangeText={setName}
             />
           </View>
-          <Pressable style={styles.addSkillBtn} onPress={addSkill}>
-            <Ionicons name="add" size={22} color={colors.white} />
-          </Pressable>
-        </View>
-        <View style={styles.skillChips}>
-          {skills.map((s) => (
-            <Pressable key={s} style={styles.skillChip} onPress={() => removeSkill(s)}>
-              <Text style={styles.skillChipText}>{s}</Text>
-              <Ionicons name="close" size={14} color={colors.primary} />
-            </Pressable>
-          ))}
-        </View>
 
-        <Text style={styles.label}>Services you can perform</Text>
-        {loadingCatalog ? (
-          <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
-        ) : (
-          <>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryRow}>
-              {categories.map((c) => (
-                <Pressable
-                  key={c.id}
-                  onPress={() => setActiveCategory(c.id)}
-                  style={[styles.categoryChip, activeCategory === c.id && styles.categoryChipActive]}
-                >
-                  <Text style={[styles.categoryChipText, activeCategory === c.id && styles.categoryChipTextActive]}>
-                    {c.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Email (Optional)</Text>
+            <Input
+              placeholder="ramesh@example.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={email}
+              onChangeText={setEmail}
+            />
+          </View>
 
-            <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
-              {services.map((s) => {
-                const selected = selectedServiceIds.includes(s.id);
-                return (
-                  <Card key={s.id} onPress={() => toggleService(s.id)} style={styles.serviceCard}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.serviceName}>{s.name}</Text>
-                    </View>
-                    <Ionicons
-                      name={selected ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={22}
-                      color={selected ? colors.primary : colors.textMuted}
-                    />
-                  </Card>
-                );
-              })}
-              {services.length === 0 ? (
-                <Text style={styles.emptyServices}>No services in this category yet.</Text>
-              ) : null}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Years of Experience</Text>
+            <Input
+              placeholder="e.g. 4"
+              keyboardType="number-pad"
+              value={experience}
+              onChangeText={setExperience}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Short Bio (Optional)</Text>
+            <Input
+              placeholder="Experienced plumber serving South Delhi"
+              value={bio}
+              onChangeText={setBio}
+              multiline
+            />
+          </View>
+
+          {/* Skills Pill Section */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Skills & Expertise</Text>
+            <View style={styles.skillInputRow}>
+              <View style={{ flex: 1 }}>
+                <Input
+                  placeholder="e.g. Leak repair, Tap fitting"
+                  value={skillInput}
+                  onChangeText={setSkillInput}
+                  onSubmitEditing={addSkill}
+                  returnKeyType="done"
+                />
+              </View>
+              <Pressable style={styles.addSkillBtn} onPress={addSkill}>
+                <Ionicons name="add" size={20} color={colors.white} />
+              </Pressable>
             </View>
-          </>
-        )}
 
-        {selectedServiceIds.length > 0 ? (
-          <Text style={styles.selectedCount}>{selectedServiceIds.length} service(s) selected</Text>
-        ) : null}
+            {skills.length > 0 && (
+              <View style={styles.skillsWrap}>
+                {skills.map((s) => (
+                  <Pressable key={s} style={styles.skillBadge} onPress={() => removeSkill(s)}>
+                    <Text style={styles.skillBadgeText}>{s}</Text>
+                    <Ionicons name="close" size={14} color={colors.textSecondary} />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {/* Services Selection - Interactive Grid */}
+          <View style={styles.inputGroup}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.label}>Services You Offer *</Text>
+              {selectedServiceIds.length > 0 && (
+                <View style={styles.countBadge}>
+                  <Text style={styles.countBadgeText}>{selectedServiceIds.length} Selected</Text>
+                </View>
+              )}
+            </View>
 
-        <Button title="Submit for review" onPress={handleSubmit} loading={saving} style={{ marginTop: spacing.xl }} />
-      </ScrollView>
+            {loadingCatalog ? (
+              <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
+            ) : (
+              <>
+                {/* Category Pills */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catTabsScroll}>
+                  {categories.map((c) => (
+                    <Pressable
+                      key={c.id}
+                      onPress={() => setActiveCategory(c.id)}
+                      style={[styles.catPill, activeCategory === c.id && styles.catPillActive]}
+                    >
+                      <Text style={[styles.catPillText, activeCategory === c.id && styles.catPillTextActive]}>
+                        {c.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+
+                {/* Service Cards */}
+                <View style={styles.servicesGrid}>
+                  {services.map((s) => {
+                    const selected = selectedServiceIds.includes(s.id);
+                    return (
+                      <Pressable
+                        key={s.id}
+                        onPress={() => toggleService(s.id)}
+                        style={[styles.serviceCard, selected && styles.serviceCardSelected]}
+                      >
+                        <View style={styles.serviceInfo}>
+                          <Text style={[styles.serviceTitle, selected && styles.serviceTitleSelected]}>
+                            {s.name}
+                          </Text>
+                          {s.description ? (
+                            <Text style={styles.serviceDesc} numberOfLines={2}>
+                              {s.description}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <View style={[styles.checkCircle, selected && styles.checkCircleSelected]}>
+                          <Ionicons
+                            name={selected ? 'checkmark' : 'add'}
+                            size={16}
+                            color={selected ? colors.white : colors.textMuted}
+                          />
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                  {services.length === 0 && (
+                    <Text style={styles.emptyText}>No services available in this category.</Text>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <Button
+            title="Next: Upload Documents"
+            onPress={handleSubmit}
+            loading={saving}
+            style={{ marginTop: spacing.lg }}
+          />
+        </ScrollView>
       </KeyboardAvoidingView>
+
       <ImagePickerModal
         visible={showPickerModal}
         onClose={() => setShowPickerModal(false)}
-        title="Add Profile Photo"
-        subtitle="Take a live selfie photo with your camera"
+        title="Upload Photo"
+        subtitle="Take a clear selfie with your phone camera"
         allowFrontCamera
         onImagePicked={handleAvatarPicked}
       />
@@ -266,60 +327,226 @@ export default function CreateProfile() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.xxl, paddingBottom: spacing.xxxl * 2 },
-  heading: { fontSize: fontSize.xxl, fontWeight: fontWeight.extrabold, color: colors.textPrimary, marginBottom: spacing.sm },
-  subheading: { fontSize: fontSize.md, color: colors.textSecondary, lineHeight: 21, marginBottom: spacing.xl },
-  avatarWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: colors.surfaceMuted,
+  container: {
+    flex: 1,
+    backgroundColor: '#FAF9F6',
+  },
+  content: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xxxl * 2,
+  },
+  topProgressRow: {
+    marginBottom: spacing.md,
+  },
+  stepText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  progressTrack: {
+    height: 4,
+    backgroundColor: '#E5E0D8',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    width: '50%',
+    height: '100%',
+    backgroundColor: colors.primary,
+  },
+  pageTitle: {
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  pageSubtitle: {
+    fontSize: fontSize.md,
+    color: colors.textSecondary,
+    marginTop: 4,
+    marginBottom: spacing.xl,
+  },
+  photoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.lg,
+    backgroundColor: colors.white,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.xl,
+  },
+  avatarCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#F0ECE4',
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'center',
     overflow: 'hidden',
-    ...shadow.subtle,
   },
-  avatarImage: { width: '100%', height: '100%' },
-  avatarHint: { textAlign: 'center', color: colors.textMuted, fontSize: fontSize.xs, marginTop: spacing.sm, marginBottom: spacing.xl },
-  label: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.textPrimary, marginBottom: spacing.sm, marginTop: spacing.sm },
-  skillInputRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoLabel: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+    color: colors.textPrimary,
+  },
+  photoActionText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    color: colors.primary,
+    marginTop: 2,
+  },
+  inputGroup: {
+    marginBottom: spacing.lg,
+  },
+  label: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.textPrimary,
+    marginBottom: 6,
+  },
+  skillInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   addSkillBtn: {
-    width: 52,
-    height: 52,
+    width: 48,
+    height: 48,
     borderRadius: radius.md,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  skillChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
-  skillChip: {
+  skillsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  skillBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: colors.white,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
     borderRadius: radius.pill,
-  },
-  skillChipText: { color: colors.primary, fontWeight: fontWeight.semibold, fontSize: fontSize.sm },
-  categoryRow: { marginBottom: spacing.sm },
-  categoryChip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    marginRight: spacing.sm,
   },
-  categoryChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  categoryChipText: { color: colors.textSecondary, fontWeight: fontWeight.semibold, fontSize: fontSize.sm },
-  categoryChipTextActive: { color: colors.white },
-  serviceCard: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md },
-  serviceName: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
-  emptyServices: { color: colors.textMuted, fontSize: fontSize.sm, paddingVertical: spacing.md },
-  selectedCount: { color: colors.textSecondary, fontSize: fontSize.sm, marginTop: spacing.md },
-  errorText: { color: colors.danger, fontSize: fontSize.sm, marginTop: spacing.md },
+  skillBadgeText: {
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
+  },
+  catTabsScroll: {
+    marginBottom: spacing.md,
+  },
+  catPill: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginRight: spacing.xs,
+  },
+  catPillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  catPillText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    color: colors.textSecondary,
+  },
+  catPillTextActive: {
+    color: colors.white,
+    fontWeight: fontWeight.bold,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  countBadge: {
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+  },
+  countBadgeText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  servicesGrid: {
+    gap: spacing.sm,
+  },
+  serviceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.white,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
+  serviceCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFF8F2',
+  },
+  serviceInfo: {
+    flex: 1,
+    paddingRight: spacing.sm,
+  },
+  serviceTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+    color: colors.textPrimary,
+  },
+  serviceTitleSelected: {
+    fontWeight: fontWeight.bold,
+    color: colors.primaryDark,
+  },
+  serviceDesc: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  checkCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.white,
+  },
+  checkCircleSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  emptyText: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingVertical: spacing.md,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: fontSize.sm,
+    marginBottom: spacing.md,
+  },
 });

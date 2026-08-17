@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -32,6 +32,24 @@ export default function ImagePickerModal({
   subtitle = 'Camera capture required for security verification',
   allowFrontCamera = false,
 }: ImagePickerModalProps) {
+  // Guards against the camera being launched more than once for a single
+  // "Open Camera" tap — without this, a fast double-tap (or a tap right as
+  // the 250ms teardown timer above is about to fire) queues two
+  // launchCameraAsync calls. The second call either opens a stacked camera
+  // screen behind/over the first, or throws because the first is still
+  // active, both of which look like "the camera opens when it shouldn't."
+  // Also reset whenever the modal is re-shown, so a launch that got
+  // interrupted (e.g. user backgrounded the app) doesn't permanently wedge
+  // the button in a disabled state next time it's opened.
+  const launchingRef = React.useRef(false);
+  const [launching, setLaunching] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      launchingRef.current = false;
+      setLaunching(false);
+    }
+  }, [visible]);
 
   // Plain View instead of RN <Modal> means the hardware back button no
   // longer closes this automatically — wire it up manually.
@@ -45,6 +63,10 @@ export default function ImagePickerModal({
   }, [visible, onClose]);
 
   const handleCamera = () => {
+    if (launchingRef.current) return;
+    launchingRef.current = true;
+    setLaunching(true);
+
     onClose();
     // No native <Modal> teardown to race against anymore — this run-loop
     // tick just lets the overlay unmount before the camera Activity launches.
@@ -87,6 +109,13 @@ export default function ImagePickerModal({
       } catch (e: any) {
         console.log('Camera error:', e);
         Alert.alert('Camera Error', e?.message || 'Failed to open camera.');
+      } finally {
+        // Released after the camera activity fully returns (picked,
+        // cancelled, or errored) — not right after launch — so a stray
+        // extra tap while the camera is genuinely still open is a no-op
+        // instead of a second launch.
+        launchingRef.current = false;
+        setLaunching(false);
       }
     }, 250);
   };
@@ -127,6 +156,7 @@ export default function ImagePickerModal({
               title="Open Camera"
               icon={<Ionicons name="camera" size={20} color={colors.white} />}
               onPress={handleCamera}
+              disabled={launching}
               style={styles.cameraBtn}
             />
 

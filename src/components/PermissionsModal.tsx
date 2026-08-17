@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from "react";
 import {
   Modal,
   View,
@@ -9,13 +9,20 @@ import {
   Linking,
   Platform,
   PermissionsAndroid,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
-import notifee from '@notifee/react-native';
-import { colors, fontSize, fontWeight, radius, shadow, spacing } from '../theme';
-import Button from './Button';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
+// import notifee from '@notifee/react-native';
+import {
+  colors,
+  fontSize,
+  fontWeight,
+  radius,
+  shadow,
+  spacing,
+} from "../theme";
+import Button from "./Button";
 
 interface PermissionsModalProps {
   visible: boolean;
@@ -28,7 +35,11 @@ interface PermissionState {
   notifications: boolean;
 }
 
-function withTimeout<T>(promise: Promise<T>, fallback: T, ms = 2500): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  fallback: T,
+  ms = 2500,
+): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
@@ -48,12 +59,21 @@ export default function PermissionsModal({
 
   const checkStatus = async () => {
     try {
-      const cameraRes = await withTimeout(ImagePicker.getCameraPermissionsAsync(), null);
-      const locationRes = await withTimeout(Location.getForegroundPermissionsAsync(), null);
+      const cameraRes = await withTimeout(
+        ImagePicker.getCameraPermissionsAsync(),
+        null,
+      );
+      const locationRes = await withTimeout(
+        Location.getForegroundPermissionsAsync(),
+        null,
+      );
       let notifGranted = false;
 
       try {
-        const notifSettings = await withTimeout(notifee.getNotificationSettings(), null);
+        const notifSettings = await withTimeout(
+          notifee.getNotificationSettings(),
+          null,
+        );
         if (notifSettings && notifSettings.authorizationStatus >= 1) {
           notifGranted = true;
         }
@@ -65,7 +85,7 @@ export default function PermissionsModal({
         notifications: notifGranted,
       });
     } catch (e) {
-      console.log('Error checking permissions:', e);
+      console.log("Error checking permissions:", e);
     }
   };
 
@@ -78,16 +98,24 @@ export default function PermissionsModal({
   const requestAllPermissions = async () => {
     setLoading(true);
     try {
-      if (Platform.OS === 'android') {
+      if (Platform.OS === "android") {
         await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
       }
-      const camera = await withTimeout(ImagePicker.requestCameraPermissionsAsync(), null);
-      const location = await withTimeout(Location.requestForegroundPermissionsAsync(), null);
+      const camera = await withTimeout(
+        ImagePicker.requestCameraPermissionsAsync(),
+        null,
+      );
+      const location = await withTimeout(
+        Location.requestForegroundPermissionsAsync(),
+        null,
+      );
 
       let notifGranted = false;
       try {
-        if (Platform.OS === 'android' && Platform.Version >= 33) {
-          await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+        if (Platform.OS === "android" && Platform.Version >= 33) {
+          await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+          );
         }
         const notifRes = await withTimeout(notifee.requestPermission(), null);
         if (notifRes && notifRes.authorizationStatus >= 1) {
@@ -101,21 +129,25 @@ export default function PermissionsModal({
         notifications: notifGranted,
       });
 
-      const cameraDenied = camera ? !camera.granted && !camera.canAskAgain : false;
-      const locationDenied = location ? !location.granted && !location.canAskAgain : false;
+      const cameraDenied = camera
+        ? !camera.granted && !camera.canAskAgain
+        : false;
+      const locationDenied = location
+        ? !location.granted && !location.canAskAgain
+        : false;
 
       if (cameraDenied || locationDenied) {
         Alert.alert(
-          'Permissions Required',
-          'Some permissions are disabled. You can enable them in device Settings.',
+          "Permissions Required",
+          "Some permissions are disabled. You can enable them in device Settings.",
           [
-            { text: 'Later', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            { text: "Later", style: "cancel" },
+            { text: "Open Settings", onPress: () => Linking.openSettings() },
           ],
         );
       }
     } catch (e: any) {
-      console.log('Error requesting permissions:', e);
+      console.log("Error requesting permissions:", e);
     } finally {
       setLoading(false);
       onComplete();
@@ -125,18 +157,29 @@ export default function PermissionsModal({
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onComplete}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onComplete}
+    >
       <Pressable style={styles.backdrop} onPress={onComplete}>
         <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
           <View style={styles.handleBar} />
 
           <View style={styles.headerRow}>
             <View style={styles.iconHeader}>
-              <Ionicons name="shield-checkmark" size={26} color={colors.primary} />
+              <Ionicons
+                name="shield-checkmark"
+                size={26}
+                color={colors.primary}
+              />
             </View>
             <View style={styles.headerTextWrap}>
               <Text style={styles.title}>Allow App Permissions</Text>
-              <Text style={styles.subtitle}>Required for job alerts & camera proof</Text>
+              <Text style={styles.subtitle}>
+                Required for job alerts & camera proof
+              </Text>
             </View>
             <Pressable onPress={onComplete} style={styles.closeBtn}>
               <Ionicons name="close" size={20} color={colors.textSecondary} />
@@ -145,7 +188,12 @@ export default function PermissionsModal({
 
           <View style={styles.permissionList}>
             <View style={styles.item}>
-              <View style={[styles.itemIcon, permissions.camera && styles.itemIconGranted]}>
+              <View
+                style={[
+                  styles.itemIcon,
+                  permissions.camera && styles.itemIconGranted,
+                ]}
+              >
                 <Ionicons
                   name="camera-outline"
                   size={20}
@@ -154,15 +202,26 @@ export default function PermissionsModal({
               </View>
               <View style={styles.itemTextWrap}>
                 <Text style={styles.itemTitle}>Camera Access (Required)</Text>
-                <Text style={styles.itemSub}>Capture live selfie, document & job proof photos</Text>
+                <Text style={styles.itemSub}>
+                  Capture live selfie, document & job proof photos
+                </Text>
               </View>
               {permissions.camera ? (
-                <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+                <Ionicons
+                  name="checkmark-circle"
+                  size={22}
+                  color={colors.success}
+                />
               ) : null}
             </View>
 
             <View style={styles.item}>
-              <View style={[styles.itemIcon, permissions.location && styles.itemIconGranted]}>
+              <View
+                style={[
+                  styles.itemIcon,
+                  permissions.location && styles.itemIconGranted,
+                ]}
+              >
                 <Ionicons
                   name="location-outline"
                   size={20}
@@ -171,27 +230,46 @@ export default function PermissionsModal({
               </View>
               <View style={styles.itemTextWrap}>
                 <Text style={styles.itemTitle}>Location Services</Text>
-                <Text style={styles.itemSub}>Receive nearby job requests & navigation</Text>
+                <Text style={styles.itemSub}>
+                  Receive nearby job requests & navigation
+                </Text>
               </View>
               {permissions.location ? (
-                <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+                <Ionicons
+                  name="checkmark-circle"
+                  size={22}
+                  color={colors.success}
+                />
               ) : null}
             </View>
 
             <View style={styles.item}>
-              <View style={[styles.itemIcon, permissions.notifications && styles.itemIconGranted]}>
+              <View
+                style={[
+                  styles.itemIcon,
+                  permissions.notifications && styles.itemIconGranted,
+                ]}
+              >
                 <Ionicons
                   name="notifications-outline"
                   size={20}
-                  color={permissions.notifications ? colors.success : colors.primary}
+                  color={
+                    permissions.notifications ? colors.success : colors.primary
+                  }
                 />
               </View>
               <View style={styles.itemTextWrap}>
                 <Text style={styles.itemTitle}>Push Notifications</Text>
-                <Text style={styles.itemSub}>Get real-time job offers & customer chats</Text>
+                <Text style={styles.itemSub}>
+                  Get real-time job offers & customer chats
+                </Text>
               </View>
               {permissions.notifications ? (
-                <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+                <Ionicons
+                  name="checkmark-circle"
+                  size={22}
+                  color={colors.success}
+                />
               ) : null}
             </View>
           </View>
@@ -216,7 +294,7 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: colors.overlay,
-    justifyContent: 'flex-end',
+    justifyContent: "flex-end",
   },
   card: {
     backgroundColor: colors.surface,
@@ -224,7 +302,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.xxl,
     paddingHorizontal: spacing.xxl,
     paddingTop: spacing.md,
-    paddingBottom: Platform.OS === 'ios' ? spacing.xxxl + 10 : spacing.xxl,
+    paddingBottom: Platform.OS === "ios" ? spacing.xxxl + 10 : spacing.xxl,
     ...shadow.raised,
   },
   handleBar: {
@@ -232,12 +310,12 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.border,
-    alignSelf: 'center',
+    alignSelf: "center",
     marginBottom: spacing.lg,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: spacing.xl,
   },
   iconHeader: {
@@ -245,8 +323,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: spacing.md,
   },
   headerTextWrap: {
@@ -267,16 +345,16 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 17,
     backgroundColor: colors.surfaceMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   permissionList: {
     gap: spacing.md,
     marginBottom: spacing.xl,
   },
   item: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: colors.background,
     padding: spacing.md,
     borderRadius: radius.xl,
@@ -288,8 +366,8 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: spacing.md,
   },
   itemIconGranted: {
@@ -314,7 +392,7 @@ const styles = StyleSheet.create({
   },
   skipBtn: {
     paddingVertical: spacing.md,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: spacing.xs,
   },
   skipText: {

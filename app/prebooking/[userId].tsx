@@ -11,19 +11,25 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import type { Socket } from 'socket.io-client';
 import { colors, fontSize, fontWeight, spacing, radius } from '../../src/theme';
-import { ChatAPI, ChatMessage, JobsAPI, Job } from '../../src/api/endpoints';
+import { PreBookingChatAPI, ChatMessage } from '../../src/api/endpoints';
 import { useAuth } from '../../src/store/auth-context';
 import { getSocket } from '../../src/lib/socket';
 
-export default function JobChat() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+/**
+ * Mirrors app/job/chat.tsx's structure and reconnect-rejoin pattern, but
+ * for the pre-booking thread with one specific customer (userId) — see
+ * ChatService.getPreBookingMessages / ChatGateway's join-prebooking on the
+ * backend. Reached either from the inbox at /prebooking, or directly from
+ * a PREBOOKING_MESSAGE push notification.
+ */
+export default function PreBookingChat() {
+  const { userId, userName } = useLocalSearchParams<{ userId: string; userName?: string }>();
   const router = useRouter();
   const { worker } = useAuth();
-  const [job, setJob] = useState<Job | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -33,15 +39,15 @@ export default function JobChat() {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    if (!id) return;
+    if (!userId) return;
     let mounted = true;
 
     (async () => {
       try {
-        const [jobRes, msgRes] = await Promise.all([JobsAPI.getById(id), ChatAPI.getMessages(id, 1, 100)]);
+        const msgRes = await PreBookingChatAPI.getMessages(userId, 1, 100);
         if (!mounted) return;
-        setJob(jobRes.data.data);
-        setMessages((msgRes.data.data ?? []).slice().reverse());
+        setMessages(msgRes.data.data ?? []);
+        PreBookingChatAPI.markRead(userId).catch(() => undefined);
       } catch {
         // Non-fatal — chat just starts empty.
       } finally {
@@ -54,63 +60,54 @@ export default function JobChat() {
       if (!mounted) return;
       socketRef.current = socket;
 
-      // socket.io's `reconnection: true` (see src/lib/socket.ts) restores
-      // the transport automatically, but room membership is server-side
-      // session state tied to that specific connection — a reconnect (any
-      // network blip, or the app coming back from the background) drops
-      // us from `booking:{id}` without dropping the socket itself. Without
-      // re-emitting join-booking here, we'd keep looking "connected" while
-      // silently missing every new-message broadcast until this screen is
-      // torn down and remounted.
       const onConnect = () => {
         setConnected(true);
-        socket.emit('join-booking', { bookingId: id });
+        socket.emit('join-prebooking', { userId, workerId: worker?.id });
+        socket.emit('mark-prebooking-read', { userId, workerId: worker?.id, senderType: 'USER' });
       };
       const onDisconnect = () => setConnected(false);
-      const onNewMessage = (msg: ChatMessage) => {
-        if (msg.bookingId !== id) return;
+      const onNewMessage = (msg: ChatMessage & { userId?: string; workerId?: string }) => {
+        if (msg.userId !== userId) return;
         setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+        if (msg.senderType === 'USER') {
+          PreBookingChatAPI.markRead(userId).catch(() => undefined);
+        }
       };
 
       socket.on('connect', onConnect);
       socket.on('disconnect', onDisconnect);
-      socket.on('new-message', onNewMessage);
+      socket.on('new-prebooking-message', onNewMessage);
       if (socket.connected) onConnect();
 
       return () => {
         socket.off('connect', onConnect);
         socket.off('disconnect', onDisconnect);
-        socket.off('new-message', onNewMessage);
+        socket.off('new-prebooking-message', onNewMessage);
       };
     })();
 
     return () => {
       mounted = false;
     };
-  }, [id]);
+  }, [userId, worker?.id]);
 
-  useFocusEffect(
-    useCallback(() => {
-      return () => {};
-    }, []),
-  );
-
-  const send = async () => {
+  const send = () => {
     const body = text.trim();
-    if (!body || !id) return;
+    if (!body || !userId || !socketRef.current) return;
     setText('');
     setSending(true);
-    try {
-      // The backend broadcasts this over the 'new-message' socket event to
-      // everyone in the booking room (including us, since we joined above),
-      // so we don't need to append it locally — the listener above will.
-      await ChatAPI.sendMessage(id, body);
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
-    } catch {
-      setText(body);
-    } finally {
+    // Backend broadcasts this back to us over 'new-prebooking-message' too
+    // (we're in the room), so no need to append it locally here.
+    socketRef.current.emit('send-prebooking-message', {
+      userId,
+      workerId: worker?.id,
+      message: body,
+      senderType: 'WORKER',
+    });
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToEnd({ animated: true });
       setSending(false);
-    }
+    });
   };
 
   return (
@@ -120,8 +117,10 @@ export default function JobChat() {
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </Pressable>
         <View style={{ flex: 1, marginLeft: spacing.md }}>
-          <Text style={styles.headerName}>{job?.user?.name ?? 'Customer'}</Text>
-          <Text style={styles.headerSub}>Job #{job?.bookingNumber ?? ''}</Text>
+          <Text style={styles.headerName}>{userName || 'Customer'}</Text>
+          <Text style={styles.headerSub}>
+            Pre-booking inquiry · {connected ? 'Online' : 'Connecting…'}
+          </Text>
         </View>
       </View>
 
@@ -139,8 +138,17 @@ export default function JobChat() {
             keyExtractor={(m) => m.id}
             contentContainerStyle={styles.list}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+            ListEmptyComponent={
+              <View style={styles.emptyWrap}>
+                <Ionicons name="chatbubbles-outline" size={36} color={colors.textMuted} />
+                <Text style={styles.emptyText}>
+                  No messages yet — this customer is asking about your availability or
+                  services before booking.
+                </Text>
+              </View>
+            }
             renderItem={({ item }) => {
-              const isMe = item.senderType === 'WORKER' || item.senderId === worker?.id;
+              const isMe = item.senderType === 'WORKER';
               return (
                 <View style={[styles.bubbleRow, isMe && styles.bubbleRowMe]}>
                   <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
@@ -154,13 +162,17 @@ export default function JobChat() {
           <View style={styles.inputRow}>
             <TextInput
               style={styles.input}
-              placeholder="Type a message..."
+              placeholder="Reply to this inquiry..."
               placeholderTextColor={colors.textMuted}
               value={text}
               onChangeText={setText}
               multiline
             />
-            <Pressable onPress={send} disabled={!text.trim() || sending} style={[styles.sendBtn, (!text.trim() || sending) && { opacity: 0.5 }]}>
+            <Pressable
+              onPress={send}
+              disabled={!text.trim() || sending}
+              style={[styles.sendBtn, (!text.trim() || sending) && { opacity: 0.5 }]}
+            >
               <Ionicons name="send" size={18} color={colors.white} />
             </Pressable>
           </View>
@@ -176,7 +188,9 @@ const styles = StyleSheet.create({
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   headerName: { fontSize: fontSize.md, fontWeight: fontWeight.bold, color: colors.textPrimary },
   headerSub: { fontSize: fontSize.xs, color: colors.textMuted },
-  list: { padding: spacing.lg, gap: spacing.sm },
+  list: { padding: spacing.lg, gap: spacing.sm, flexGrow: 1 },
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, paddingTop: spacing.xxxl, paddingHorizontal: spacing.xl },
+  emptyText: { fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
   bubbleRow: { flexDirection: 'row' },
   bubbleRowMe: { justifyContent: 'flex-end' },
   bubble: { maxWidth: '78%', borderRadius: radius.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },

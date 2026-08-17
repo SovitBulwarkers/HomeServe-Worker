@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator, ScrollView, Image, Platform, PermissionsAndroid } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { colors, fontSize, fontWeight, spacing, radius, shadow } from '../../src/theme';
+import { colors, fontSize, fontWeight, spacing, radius } from '../../src/theme';
 import Button from '../../src/components/Button';
 import { useAuth } from '../../src/store/auth-context';
 import { UploadAPI, WorkerAPI, WorkerDocument } from '../../src/api/endpoints';
@@ -21,22 +21,22 @@ interface DocSlot {
 const SLOTS: DocSlot[] = [
   {
     type: 'SELFIE',
-    label: 'Live selfie',
-    hint: 'Take a clear photo of your face',
+    label: 'Live Photo / Selfie',
+    hint: 'Clear front-facing photo of your face',
     icon: 'camera-outline',
     useCamera: 'front',
   },
   {
     type: 'ID_PROOF',
-    label: 'Government ID',
-    hint: 'Aadhaar, PAN or driving licence',
+    label: 'Government Photo ID',
+    hint: 'Aadhaar Card, PAN Card, or Driving License',
     icon: 'card-outline',
   },
   {
     type: 'ADDRESS_PROOF',
-    label: 'Address proof',
-    hint: 'Utility bill, ration card, etc.',
-    icon: 'home-outline',
+    label: 'Address Proof',
+    hint: 'Electricity Bill, Voter ID, or Utility Statement',
+    icon: 'document-text-outline',
   },
 ];
 
@@ -61,7 +61,8 @@ export default function OnboardingDocuments() {
   }, []);
 
   const docFor = (type: string) => existing.find((d) => d.type === type);
-  const allUploaded = SLOTS.every((s) => docFor(s.type));
+  const uploadedCount = SLOTS.filter((s) => docFor(s.type)).length;
+  const allUploaded = uploadedCount === SLOTS.length;
 
   const [selectedSlot, setSelectedSlot] = useState<DocSlot | null>(null);
 
@@ -80,7 +81,7 @@ export default function OnboardingDocuments() {
         name: `${slot.type.toLowerCase()}.jpg`,
         type: 'image/jpeg',
       } as any);
-      const { data } = await UploadAPI.uploadImage(formData, 'worker-documents');
+      const { data } = await UploadAPI.uploadImage(formData, 'documents');
       const url = data.data?.url ?? (data as any).url;
       await WorkerAPI.uploadDocument(slot.type, url);
       setExisting((prev) => [...prev.filter((d) => d.type !== slot.type), { id: slot.type, type: slot.type, url, isVerified: false }]);
@@ -95,7 +96,7 @@ export default function OnboardingDocuments() {
 
   const handleSubmit = async () => {
     if (!allUploaded) {
-      Alert.alert('Almost there', 'Please add all three documents before submitting.');
+      Alert.alert('Almost there', 'Please add all required documents before submitting.');
       return;
     }
     setSubmitting(true);
@@ -112,53 +113,89 @@ export default function OnboardingDocuments() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.heading}>Verify your identity</Text>
-        <Text style={styles.subheading}>
-          Admins review these before your account can start accepting jobs. This usually takes less than 24 hours.
+        {/* Step Progress Tracker */}
+        <View style={styles.topProgressRow}>
+          <Text style={styles.stepText}>Step 2 of 2</Text>
+          <View style={styles.progressTrack}>
+            <View style={styles.progressFill} />
+          </View>
+        </View>
+
+        <Text style={styles.pageTitle}>Identity Verification</Text>
+        <Text style={styles.pageSubtitle}>
+          Upload documents to get verified and start receiving job requests.
         </Text>
 
-        <View style={{ gap: spacing.md, marginTop: spacing.lg }}>
+        {/* Upload Status Banner */}
+        <View style={styles.statusBanner}>
+          <Ionicons
+            name={allUploaded ? 'checkmark-circle' : 'time-outline'}
+            size={20}
+            color={allUploaded ? colors.success : colors.warning}
+          />
+          <Text style={styles.statusBannerText}>
+            {allUploaded
+              ? 'All documents uploaded. Ready for review!'
+              : `${uploadedCount} of ${SLOTS.length} documents uploaded`}
+          </Text>
+        </View>
+
+        {/* Document Slots */}
+        <View style={styles.slotsList}>
           {SLOTS.map((slot) => {
             const doc = docFor(slot.type);
             const uploading = uploadingType === slot.type;
             return (
-              <Pressable key={slot.type} onPress={() => handleSlotPress(slot)} style={styles.docCard}>
-                <View style={styles.docThumb}>
+              <Pressable
+                key={slot.type}
+                onPress={() => handleSlotPress(slot)}
+                style={[styles.docTile, doc && styles.docTileDone]}
+              >
+                <View style={[styles.iconBox, doc && styles.iconBoxDone]}>
                   {doc ? (
-                    <Image source={{ uri: doc.url }} style={styles.docThumbImage} />
+                    <Image source={{ uri: doc.url }} style={styles.thumbImage} />
                   ) : (
-                    <Ionicons name={slot.icon} size={22} color={colors.primary} />
+                    <Ionicons name={slot.icon} size={24} color={colors.primary} />
                   )}
                 </View>
-                <View style={{ flex: 1, marginLeft: spacing.md }}>
-                  <Text style={styles.docLabel}>{slot.label}</Text>
-                  <Text style={styles.docHint}>{doc ? 'Uploaded — tap to retake' : slot.hint}</Text>
+
+                <View style={styles.docInfo}>
+                  <Text style={styles.docTitle}>{slot.label}</Text>
+                  <Text style={styles.docSub}>{doc ? 'Tap to retake photo' : slot.hint}</Text>
                 </View>
-                {uploading ? (
-                  <ActivityIndicator color={colors.primary} />
-                ) : doc ? (
-                  <Ionicons name="checkmark-circle" size={22} color={colors.success} />
-                ) : (
-                  <Ionicons name={slot.useCamera ? 'camera' : 'cloud-upload-outline'} size={20} color={colors.textMuted} />
-                )}
+
+                <View style={styles.actionWrap}>
+                  {uploading ? (
+                    <ActivityIndicator color={colors.primary} />
+                  ) : doc ? (
+                    <View style={styles.doneBadge}>
+                      <Ionicons name="checkmark" size={14} color={colors.white} />
+                    </View>
+                  ) : (
+                    <View style={styles.uploadBtn}>
+                      <Text style={styles.uploadBtnText}>Upload</Text>
+                    </View>
+                  )}
+                </View>
               </Pressable>
             );
           })}
         </View>
 
         <Button
-          title="Submit for review"
+          title="Submit for Approval"
           onPress={handleSubmit}
           loading={submitting}
           disabled={!allUploaded}
-          style={{ marginTop: spacing.xxl }}
+          style={{ marginTop: spacing.xl }}
         />
       </ScrollView>
+
       <ImagePickerModal
         visible={!!selectedSlot}
         onClose={() => setSelectedSlot(null)}
         title={selectedSlot ? `Upload ${selectedSlot.label}` : 'Upload Document'}
-        subtitle="Camera capture required for document upload"
+        subtitle="Camera capture required for identity verification"
         allowFrontCamera={selectedSlot?.useCamera === 'front'}
         onImagePicked={handleImagePicked}
       />
@@ -167,28 +204,135 @@ export default function OnboardingDocuments() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.xxl, paddingBottom: spacing.xxxl * 2 },
-  heading: { fontSize: fontSize.xxl, fontWeight: fontWeight.extrabold, color: colors.textPrimary, marginBottom: spacing.sm },
-  subheading: { fontSize: fontSize.md, color: colors.textSecondary, lineHeight: 21 },
-  docCard: {
+  container: {
+    flex: 1,
+    backgroundColor: '#FAF9F6',
+  },
+  content: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xxxl * 2,
+  },
+  topProgressRow: {
+    marginBottom: spacing.md,
+  },
+  stepText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  progressTrack: {
+    height: 4,
+    backgroundColor: '#E5E0D8',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: colors.primary,
+  },
+  pageTitle: {
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  pageSubtitle: {
+    fontSize: fontSize.md,
+    color: colors.textSecondary,
+    marginTop: 4,
+    marginBottom: spacing.lg,
+  },
+  statusBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    ...shadow.subtle,
+    gap: spacing.xs + 2,
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.xl,
   },
-  docThumb: {
-    width: 48,
-    height: 48,
+  statusBannerText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    color: colors.textPrimary,
+  },
+  slotsList: {
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  docTile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  docTileDone: {
+    borderColor: colors.success,
+    backgroundColor: '#F5FCF8',
+  },
+  iconBox: {
+    width: 50,
+    height: 50,
     borderRadius: radius.md,
     backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  docThumbImage: { width: '100%', height: '100%' },
-  docLabel: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
-  docHint: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
+  iconBoxDone: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.success,
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  docInfo: {
+    flex: 1,
+    marginLeft: spacing.md,
+    paddingRight: spacing.xs,
+  },
+  docTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  docSub: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  actionWrap: {
+    marginLeft: spacing.xs,
+  },
+  doneBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadBtn: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.sm,
+  },
+  uploadBtnText: {
+    color: colors.white,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+  },
 });

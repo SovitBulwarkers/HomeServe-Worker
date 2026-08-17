@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Alert, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fontSize, fontWeight, spacing } from '../../src/theme';
+import { colors, fontSize, fontWeight, radius, spacing } from '../../src/theme';
 import { Card, IconBadge, SectionHeader, StatusPill, statusTone, statusLabel, EmptyState, ToggleRow } from '../../src/components/ui';
 import { useAuth } from '../../src/store/auth-context';
 import { JobsAPI, Job, WalletAPI, WorkerAPI } from '../../src/api/endpoints';
@@ -188,31 +188,132 @@ export default function Dashboard() {
           </Card>
         </View>
 
-        <SectionHeader title="Today's schedule" actionLabel="See all" onAction={() => router.push('/(tabs)/jobs')} />
+        {/* TODAY'S AGENDA / SCHEDULE HEADER */}
+        <View style={styles.agendaHeader}>
+          <View>
+            <View style={styles.agendaTitleRow}>
+              <Text style={styles.agendaTitle}>Today's Schedule</Text>
+              {todayJobs.length > 0 && (
+                <View style={styles.agendaCountBadge}>
+                  <Text style={styles.agendaCountText}>{todayJobs.length} {todayJobs.length === 1 ? 'job' : 'jobs'}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.agendaSubtitle}>
+              {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+            </Text>
+          </View>
 
+          <Pressable onPress={() => router.push('/(tabs)/jobs')} style={styles.seeAllBtn}>
+            <Text style={styles.seeAllBtnText}>See all</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+          </Pressable>
+        </View>
+
+        {/* TODAY'S JOBS LIST */}
         {loading ? null : todayJobs.length === 0 ? (
           <EmptyState
             icon="calendar-outline"
             title="No jobs scheduled today"
-            subtitle={isOnline ? "You're online — new requests will show up here." : 'Go online to start receiving job requests.'}
+            subtitle={isOnline ? "You're online — new requests will show up here as soon as customers book." : 'Turn on your online status to start receiving jobs.'}
           />
         ) : (
-          <View style={{ gap: spacing.md }}>
-            {todayJobs.map((job) => (
-              <Card key={job.id} onPress={() => router.push({ pathname: '/job/[id]', params: { id: job.id } })}>
-                <View style={styles.jobRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.jobService}>
-                      {job.items?.map((i) => i.service?.name).filter(Boolean).join(', ') || 'Service'}
-                    </Text>
-                    <Text style={styles.jobMeta}>
-                      {job.scheduledTime} · {job.address?.city ?? ''}
-                    </Text>
+          <View style={styles.agendaList}>
+            {todayJobs.map((job) => {
+              const isCurrent = job.status === 'IN_PROGRESS';
+              const isDone = job.status === 'COMPLETED';
+              
+              const serviceName =
+                job.items?.map((i) => i.service?.name).filter(Boolean).join(', ') || 'Service request';
+              const locationText =
+                [job.address?.addressLine1, job.address?.city].filter(Boolean).join(', ') || 'Address in details';
+              const customerName =
+                job.user?.name || (job as any).customer?.name || 'Customer';
+
+              return (
+                <Pressable
+                  key={job.id}
+                  style={[
+                    styles.agendaCard,
+                    isCurrent && styles.agendaCardActive,
+                    isDone && styles.agendaCardDone,
+                  ]}
+                  onPress={() => router.push({ pathname: '/job/[id]', params: { id: job.id } })}
+                >
+                  {/* Top Bar: Time Badge & Status Pill */}
+                  <View style={styles.agendaCardHeader}>
+                    <View style={[styles.timeBadge, isCurrent && styles.timeBadgeActive]}>
+                      <Ionicons
+                        name="time-outline"
+                        size={13}
+                        color={isCurrent ? colors.white : colors.primaryDark}
+                      />
+                      <Text style={[styles.timeBadgeText, isCurrent && styles.timeBadgeTextActive]}>
+                        {job.scheduledTime || 'Scheduled'}
+                      </Text>
+                    </View>
+
+                    <StatusPill label={statusLabel(job.status)} tone={statusTone(job.status)} />
                   </View>
-                  <StatusPill label={statusLabel(job.status)} tone={statusTone(job.status)} />
-                </View>
-              </Card>
-            ))}
+
+                  {/* Main Content */}
+                  <View style={styles.agendaCardContent}>
+                    <Text style={styles.serviceTitle} numberOfLines={1}>
+                      {serviceName}
+                    </Text>
+
+                    {/* Customer Name Row */}
+                    <View style={styles.metaRow}>
+                      <View style={styles.customerAvatarChip}>
+                        <Ionicons name="person" size={11} color={colors.primary} />
+                      </View>
+                      <Text style={styles.customerNameBold} numberOfLines={1}>
+                        {customerName}{' '}
+                        <Text style={{ color: colors.textMuted, fontWeight: '400' }}>
+                          · #{job.bookingNumber ?? job.id.slice(0, 6)}
+                        </Text>
+                      </Text>
+                    </View>
+
+                    {/* Location Row */}
+                    <View style={styles.metaRow}>
+                      <Ionicons name="location-outline" size={13} color={colors.primary} />
+                      <Text style={styles.metaText} numberOfLines={1}>
+                        {locationText}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Direct Customer Request Banner */}
+                  {job.preferredWorkerId ? (
+                    <View style={styles.directRequestTag}>
+                      <Ionicons name="star" size={12} color={colors.warning} />
+                      <Text style={styles.directRequestTagText}>Customer requested you directly</Text>
+                    </View>
+                  ) : null}
+
+                  {/* Bottom Footer: Payout & Action */}
+                  <View style={styles.agendaFooter}>
+                    <View style={styles.priceContainer}>
+                      <Text style={styles.priceLabel}>Payout</Text>
+                      <Text style={styles.priceValue}>₹{(job.finalAmount ?? job.total ?? 0).toFixed(0)}</Text>
+                    </View>
+
+                    {/* Bottom Right Details Button */}
+                    <View style={styles.actionBtn}>
+                      <Text style={styles.actionBtnText}>
+                        {isCurrent ? 'Continue' : isDone ? 'Summary' : 'Details'}
+                      </Text>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={14}
+                        color={colors.white}
+                      />
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            })}
           </View>
         )}
       </ScrollView>
@@ -238,7 +339,147 @@ const styles = StyleSheet.create({
   statCard: { flex: 1, alignItems: 'center', paddingVertical: spacing.lg },
   statValue: { fontSize: fontSize.xl, fontWeight: fontWeight.extrabold, color: colors.textPrimary },
   statLabel: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 4, textAlign: 'center' },
-  jobRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  jobService: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
-  jobMeta: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
+
+  // Agenda Header
+  agendaHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm },
+  agendaTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  agendaTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.extrabold, color: colors.textPrimary },
+  agendaSubtitle: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
+  agendaCountBadge: { backgroundColor: colors.primaryLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill },
+  agendaCountText: { fontSize: fontSize.xs, fontWeight: fontWeight.bold, color: colors.primaryDark },
+  seeAllBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  seeAllBtnText: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: colors.primary },
+
+  // Agenda Cards
+  agendaList: { gap: spacing.md },
+  agendaCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  agendaCardActive: {
+    borderColor: colors.primary,
+    borderWidth: 1.5,
+    backgroundColor: '#FFFDF9',
+  },
+  agendaCardDone: {
+    opacity: 0.85,
+  },
+  agendaCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  timeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  timeBadgeActive: {
+    backgroundColor: colors.primary,
+  },
+  timeBadgeText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.primaryDark,
+  },
+  timeBadgeTextActive: {
+    color: colors.white,
+  },
+  agendaCardContent: {
+    gap: 4,
+  },
+  serviceTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  metaText: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    flex: 1,
+  },
+  customerAvatarChip: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customerNameBold: {
+    fontSize: fontSize.xs + 1,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  directRequestTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.warningLight,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    alignSelf: 'flex-start',
+  },
+  directRequestTagText: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: colors.warning,
+  },
+  agendaFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: spacing.xs + 4,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+    marginTop: 2,
+  },
+  priceContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  priceLabel: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+  },
+  priceValue: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.extrabold,
+    color: colors.primary,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radius.pill,
+  },
+  actionBtnText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.white,
+  },
 });

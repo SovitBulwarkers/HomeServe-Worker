@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -43,6 +44,7 @@ export default function TicketDetail() {
   const [loading, setLoading] = useState(true);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const [closing, setClosing] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -79,6 +81,32 @@ export default function TicketDetail() {
     }
   };
 
+  const closeTicket = () => {
+    if (!ticket || isClosed) return;
+    Alert.alert(
+      'Close this ticket?',
+      "You won't be able to reply after it's closed. Raise a new ticket if you need more help later.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Close ticket',
+          style: 'destructive',
+          onPress: async () => {
+            setClosing(true);
+            try {
+              await SupportAPI.closeTicket(ticket.id);
+              setTicket((t) => (t ? { ...t, status: 'CLOSED' } : t));
+            } catch {
+              Alert.alert('Error', "Couldn't close the ticket. Please try again.");
+            } finally {
+              setClosing(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
@@ -89,6 +117,15 @@ export default function TicketDetail() {
           <Text style={styles.headerTitle} numberOfLines={1}>{ticket?.subject ?? 'Ticket'}</Text>
         </View>
         {ticket ? <StatusPill label={ticket.status} tone={ticketStatusTone(ticket.status)} /> : null}
+        {ticket && !isClosed ? (
+          <Pressable onPress={closeTicket} disabled={closing} style={styles.closeTicketBtn}>
+            {closing ? (
+              <ActivityIndicator size="small" color={colors.danger} />
+            ) : (
+              <Ionicons name="checkmark-done-outline" size={20} color={colors.danger} />
+            )}
+          </Pressable>
+        ) : null}
       </View>
 
       {loading ? (
@@ -171,6 +208,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', padding: spacing.lg },
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: fontSize.md, fontWeight: fontWeight.bold, color: colors.textPrimary },
+  closeTicketBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginLeft: spacing.sm },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyText: { color: colors.textMuted, fontSize: fontSize.md },
   messages: { padding: spacing.xxl, paddingBottom: spacing.lg, gap: spacing.sm, flexGrow: 1 },

@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fontSize, fontWeight, spacing, radius } from '../../src/theme';
 import { Card, EmptyState, Input } from '../../src/components/ui';
@@ -12,6 +12,7 @@ import SettleDebtModal from '../../src/components/SettleDebtModal';
 type Period = 'today' | 'week' | 'month';
 
 export default function Earnings() {
+  const router = useRouter();
   const [wallet, setWallet] = useState<WorkerWallet | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [period, setPeriod] = useState<Period>('week');
@@ -21,25 +22,42 @@ export default function Earnings() {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawing, setWithdrawing] = useState(false);
   const [settleOpen, setSettleOpen] = useState(false);
+  // Sum of withdrawals still PENDING/PROCESSING — money already earmarked
+  // for a payout in flight. The backend excludes this from what a new
+  // withdrawal request is allowed to draw against (see
+  // WalletService.withdrawMoney's `reserved` aggregate), so the client
+  // has to mirror that here too or "Confirm" will look valid locally and
+  // then get rejected server-side with a confusing error.
+  const [reserved, setReserved] = useState(0);
 
   const load = useCallback(async (p: Period) => {
     setLoading(true);
     try {
-      const [walletRes, txRes, earnRes] = await Promise.all([
+      const [walletRes, txRes, earnRes, withdrawalsRes] = await Promise.all([
         WalletAPI.getWallet(),
         WalletAPI.getTransactions(1, 20),
         WalletAPI.getEarnings(p),
+        WalletAPI.getWithdrawals(1, 50),
       ]);
       setWallet(walletRes.data.data ?? null);
       const txData: any = txRes.data;
       setTransactions(txData.data?.transactions ?? txData.data ?? []);
       setSummary(earnRes.data.data ?? null);
+      const withdrawals = withdrawalsRes.data.data?.withdrawals ?? [];
+      const reservedSum = withdrawals
+        .filter((w) => w.status === 'PENDING' || w.status === 'PROCESSING')
+        .reduce((sum, w) => sum + Number(w.amount), 0);
+      setReserved(reservedSum);
     } catch {
       // Non-fatal — shows zero state.
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // What the worker can actually withdraw right now: wallet balance minus
+  // whatever's already tied up in an in-flight withdrawal. Never negative.
+  const available = wallet ? Math.max(0, Number(wallet.balance) - reserved) : 0;
 
   useFocusEffect(
     useCallback(() => {
@@ -53,8 +71,13 @@ export default function Earnings() {
       Alert.alert('Enter a valid amount');
       return;
     }
-    if (wallet && amount > wallet.balance) {
-      Alert.alert('Insufficient balance', 'You cannot withdraw more than your wallet balance.');
+    if (amount > available) {
+      Alert.alert(
+        'Insufficient available balance',
+        reserved > 0
+          ? `You have ₹${reserved.toFixed(0)} tied up in a withdrawal that's already in progress. You can withdraw up to ₹${available.toFixed(0)} right now.`
+          : 'You cannot withdraw more than your available balance.',
+      );
       return;
     }
     setWithdrawing(true);
@@ -79,25 +102,48 @@ export default function Earnings() {
             <Text style={styles.heading}>Earnings</Text>
 
             <Card style={styles.balanceCard}>
-              <Text style={styles.balanceLabel}>Wallet balance</Text>
-              <Text style={styles.balanceValue}>₹{(wallet?.balance ?? 0).toFixed(2)}</Text>
+              <Text style={styles.balanceLabel}>Available to withdraw</Text>
+              <Text style={styles.balanceValue}>₹{available.toFixed(2)}</Text>
+              {reserved > 0 && (
+                <Text style={styles.balanceSubnote}>₹{reserved.toFixed(0)} already in a withdrawal in progress</Text>
+              )}
+              {!!wallet && wallet.pendingBalance > 0 && (
+                <Text style={styles.balanceSubnote}>
+                  + ₹{wallet.pendingBalance.toFixed(0)} settling from recent jobs — moves here automatically once cleared
+                </Text>
+              )}
               <Button title="Withdraw to bank" onPress={() => setWithdrawOpen(true)} size="sm" style={{ marginTop: spacing.md }} />
             </Card>
 
-            {wallet && wallet.balance < 0 && (
+            {wallet && wallet.commissionDebt > 0 && (
               <Card style={styles.debtCard}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                   <Ionicons name="alert-circle" size={20} color={colors.danger} />
                   <Text style={styles.debtTitle}>Cash commission owed</Text>
                 </View>
                 <Text style={styles.debtSubtitle}>
-                  You collected cash on a job — ₹{Math.abs(wallet.balance).toFixed(0)} in commission is
+                  You collected cash on a job — ₹{wallet.commissionDebt.toFixed(0)} in commission is
                   owed to HomeServe. Settle it now or it'll be deducted from your next digital-payment
                   earnings.
                 </Text>
                 <Button title="Settle Now" onPress={() => setSettleOpen(true)} size="sm" style={{ marginTop: spacing.md }} />
               </Card>
             )}
+
+            <View style={styles.quickLinksRow}>
+              <Pressable style={styles.quickLink} onPress={() => router.push('/earnings/monthly-statement')}>
+                <Ionicons name="document-text-outline" size={20} color={colors.primary} />
+                <Text style={styles.quickLinkText}>Monthly statement</Text>
+              </Pressable>
+              <Pressable style={styles.quickLink} onPress={() => router.push('/earnings/withdrawals')}>
+                <Ionicons name="swap-vertical-outline" size={20} color={colors.primary} />
+                <Text style={styles.quickLinkText}>Withdrawal history</Text>
+              </Pressable>
+              <Pressable style={styles.quickLink} onPress={() => router.push('/earnings/history')}>
+                <Ionicons name="list-outline" size={20} color={colors.primary} />
+                <Text style={styles.quickLinkText}>Per-booking earnings</Text>
+              </Pressable>
+            </View>
 
             <View style={styles.periodRow}>
               {(['today', 'week', 'month'] as Period[]).map((p) => (
@@ -158,7 +204,7 @@ export default function Earnings() {
         >
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Withdraw earnings</Text>
-            <Text style={styles.modalSubtitle}>Available balance: ₹{(wallet?.balance ?? 0).toFixed(2)}</Text>
+            <Text style={styles.modalSubtitle}>Available balance: ₹{available.toFixed(2)}</Text>
             <Input placeholder="Amount" keyboardType="number-pad" value={withdrawAmount} onChangeText={setWithdrawAmount} />
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               <Button title="Cancel" variant="outline" onPress={() => setWithdrawOpen(false)} style={{ flex: 1 }} />
@@ -170,11 +216,11 @@ export default function Earnings() {
 
       <SettleDebtModal
         visible={settleOpen}
-        owed={wallet ? Math.abs(wallet.balance) : 0}
+        owed={wallet ? wallet.commissionDebt : 0}
         onClose={() => setSettleOpen(false)}
-        onSettled={(newBalance) => {
+        onSettled={(remainingCommissionDebt) => {
           setSettleOpen(false);
-          setWallet((w) => (w ? { ...w, balance: newBalance } : w));
+          setWallet((w) => (w ? { ...w, commissionDebt: remainingCommissionDebt } : w));
           Alert.alert('Settled', 'Your cash commission has been cleared.');
           load(period);
         }}
@@ -193,6 +239,10 @@ const styles = StyleSheet.create({
   debtSubtitle: { fontSize: fontSize.xs, color: colors.textSecondary, marginTop: spacing.xs },
   balanceLabel: { color: colors.textSecondary, fontSize: fontSize.sm },
   balanceValue: { fontSize: fontSize.display, fontWeight: fontWeight.extrabold, color: colors.textPrimary, marginTop: 4 },
+  balanceSubnote: { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 4, textAlign: 'center' },
+  quickLinksRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
+  quickLink: { flex: 1, alignItems: 'center', gap: 6, backgroundColor: colors.surface, borderRadius: radius.lg, paddingVertical: spacing.md, paddingHorizontal: spacing.xs },
+  quickLinkText: { fontSize: 11, fontWeight: fontWeight.semibold, color: colors.textPrimary, textAlign: 'center' },
   periodRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xl },
   periodBtn: { flex: 1, paddingVertical: spacing.sm, borderRadius: radius.pill, alignItems: 'center', backgroundColor: colors.surfaceMuted },
   periodBtnActive: { backgroundColor: colors.primary },

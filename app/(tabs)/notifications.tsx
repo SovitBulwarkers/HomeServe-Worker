@@ -20,6 +20,7 @@ const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   'booking.cancelled': 'close-circle-outline',
   'booking.rejected': 'close-circle-outline',
   'worker.approved': 'ribbon-outline',
+  PREBOOKING_MESSAGE: 'chatbubble-ellipses-outline',
 };
 
 export default function Notifications() {
@@ -52,9 +53,14 @@ export default function Notifications() {
       NotificationAPI.markRead(n.id).catch(() => undefined);
       setItems((prev) => prev.map((i) => (i.id === n.id ? { ...i, isRead: true } : i)));
     }
-    const bookingId = (n.data as any)?.bookingId;
-    if (bookingId) {
-      router.push({ pathname: '/job/[id]', params: { id: bookingId } });
+    const data = n.data as any;
+    if (data?.bookingId) {
+      router.push({ pathname: '/job/[id]', params: { id: data.bookingId } });
+    } else if (n.type === 'PREBOOKING_MESSAGE' && data?.counterpartId) {
+      router.push({
+        pathname: '/prebooking/[userId]',
+        params: { userId: data.counterpartId, userName: data.senderName },
+      });
     }
   };
 

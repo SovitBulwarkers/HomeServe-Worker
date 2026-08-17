@@ -10,7 +10,7 @@ interface Props {
   visible: boolean;
   owed: number;
   onClose: () => void;
-  onSettled: (newBalance: number) => void;
+  onSettled: (remainingCommissionDebt: number) => void;
 }
 
 function buildCheckoutHtml(opts: {
@@ -131,7 +131,9 @@ export default function SettleDebtModal({ visible, owed, onClose, onSettled }: P
           razorpaySignature: razorpay_signature,
           amount: owed,
         });
-        onSettled(data.data.balance);
+        // The endpoint returns the remaining commissionDebt (not a wallet
+        // balance — settling debt never touches the withdrawable balance).
+        onSettled(data.data.commissionDebt);
       } catch (e: any) {
         setErrorMsg(
           e?.response?.data?.message ||
