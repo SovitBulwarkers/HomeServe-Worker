@@ -218,12 +218,13 @@ export function checkIsCodPayment(job: any): boolean {
     ''
   ).toString().toUpperCase();
 
-  // If API status is PAID / COMPLETED / SUCCESS / CAPTURED -> Paid Online
-  if (['COMPLETED', 'PAID', 'SUCCESS', 'CAPTURED', 'SETTLED'].includes(status)) {
-    return false;
-  }
-
-  // 3. Extract payment method string from API
+  // Extract payment method string from API early, so status checks below
+  // can't shortcut past an explicit CASH/COD method. A cash booking's
+  // payment.status legitimately flips to SUCCESS once the job is marked
+  // complete (the worker collected cash in person, so the payment did
+  // succeed) — that status flip must NOT be read as "paid online", or a
+  // completed cash job wrongly shows the "Paid Online, do not collect
+  // cash" banner after the worker already collected cash for it.
   const method = (
     job.payment?.method ||
     job.paymentMethod ||
@@ -232,14 +233,19 @@ export function checkIsCodPayment(job: any): boolean {
     ''
   ).toString().toUpperCase();
 
-  // Explicit Online payment methods -> Paid Online
-  if (['UPI', 'CARD', 'ONLINE', 'NETBANKING', 'RAZORPAY', 'STRIPE', 'PAYTM', 'WALLET'].includes(method)) {
+  if (['COD', 'CASH', 'PAY_ON_DELIVERY'].includes(method)) {
+    return true;
+  }
+
+  // If API status is PAID / COMPLETED / SUCCESS / CAPTURED -> Paid Online
+  // (only reached once we know the method isn't explicitly cash/COD).
+  if (['COMPLETED', 'PAID', 'SUCCESS', 'CAPTURED', 'SETTLED'].includes(status)) {
     return false;
   }
 
-  // Explicit Cash on Delivery methods -> Collect Cash
-  if (['COD', 'CASH', 'PAY_ON_DELIVERY'].includes(method)) {
-    return true;
+  // Explicit Online payment methods -> Paid Online
+  if (['UPI', 'CARD', 'ONLINE', 'NETBANKING', 'RAZORPAY', 'STRIPE', 'PAYTM', 'WALLET'].includes(method)) {
+    return false;
   }
 
   // If payment status is explicitly PENDING or UNPAID and not an online method -> Collect Cash

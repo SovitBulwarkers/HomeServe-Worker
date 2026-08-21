@@ -5,7 +5,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fontSize, fontWeight, spacing, radius } from '../../src/theme';
 import { Card } from '../../src/components/ui';
-import { WorkerAPI } from '../../src/api/endpoints';
+import { WorkerAPI, JobsAPI } from '../../src/api/endpoints';
 
 /**
  * Date-specific availability ("mark a day off"), backed by real server
@@ -67,6 +67,12 @@ export default function AvailabilityScreen() {
   const router = useRouter();
   const dates = upcomingDates();
   const [blocked, setBlocked] = useState<Record<string, boolean>>({});
+  // Dates the worker has real, active bookings on (status not cancelled/
+  // rejected/completed), mapped to the specific times booked that day —
+  // NOT a whole-day flag. A day can have one booked slot (e.g. 10:00 AM)
+  // and still be free the rest of the day, so the UI shows the actual
+  // times rather than blanket-labeling the whole day "Booked".
+  const [bookedTimes, setBookedTimes] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
@@ -75,8 +81,11 @@ export default function AvailabilityScreen() {
     try {
       const from = dates[0];
       const to = dates[dates.length - 1];
-      const res: any = await WorkerAPI.getAvailability(dateKey(from), dateKey(to));
-      const list = res?.data?.data ?? res?.data?.availability ?? res?.data ?? [];
+      const [availRes, jobsRes]: any = await Promise.all([
+        WorkerAPI.getAvailability(dateKey(from), dateKey(to)),
+        JobsAPI.upcoming(),
+      ]);
+      const list = availRes?.data?.data ?? availRes?.data?.availability ?? availRes?.data ?? [];
       const map: Record<string, boolean> = {};
       if (Array.isArray(list)) {
         for (const entry of list) {
@@ -88,8 +97,30 @@ export default function AvailabilityScreen() {
         }
       }
       setBlocked(map);
+
+      const jobs = jobsRes?.data?.data ?? jobsRes?.data ?? [];
+      const bookedMap: Record<string, string[]> = {};
+      if (Array.isArray(jobs)) {
+        for (const job of jobs) {
+          const isLiveStatus = !['CANCELLED', 'REJECTED', 'COMPLETED'].includes(
+            job.status,
+          );
+          if (isLiveStatus && job.scheduledDate) {
+            const key = istDateKeyFromIso(job.scheduledDate);
+            const time = job.scheduledTime || '';
+            if (!bookedMap[key]) bookedMap[key] = [];
+            if (time) bookedMap[key].push(time);
+          }
+        }
+        // Keep each day's times in chronological order for display.
+        for (const key of Object.keys(bookedMap)) {
+          bookedMap[key].sort();
+        }
+      }
+      setBookedTimes(bookedMap);
     } catch {
       setBlocked({});
+      setBookedTimes({});
     } finally {
       setLoading(false);
     }
@@ -104,6 +135,13 @@ export default function AvailabilityScreen() {
 
   const toggleDate = async (d: Date) => {
     const key = dateKey(d);
+    if (bookedTimes[key]?.length) {
+      Alert.alert(
+        'Already booked',
+        `This date has ${bookedTimes[key].length > 1 ? 'jobs' : 'a job'} scheduled at ${bookedTimes[key].join(', ')}, so it can't be marked off as a whole day. You can cancel or reschedule the job first if you need to.`,
+      );
+      return;
+    }
     const currentlyOff = !!blocked[key];
     setSavingKey(key);
     try {
@@ -149,6 +187,8 @@ export default function AvailabilityScreen() {
           {dates.map((d) => {
             const key = dateKey(d);
             const isOff = !!blocked[key];
+            const times = bookedTimes[key] || [];
+            const isBooked = times.length > 0;
             const isSaving = savingKey === key;
             return (
               <Card key={key} style={styles.dayRow}>
@@ -156,23 +196,33 @@ export default function AvailabilityScreen() {
                   <Text style={styles.dayLabel}>
                     {d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
                   </Text>
-                  <Text style={[styles.dayStatus, isOff && styles.dayStatusOff]}>
-                    {isOff ? 'Marked off' : 'Available'}
+                  <Text style={[styles.dayStatus, isOff && styles.dayStatusOff, isBooked && styles.dayStatusBooked]}>
+                    {isBooked
+                      ? `Booked ${times.join(', ')}${times.length === 1 ? '' : ` (${times.length} jobs)`}`
+                      : isOff
+                        ? 'Marked off'
+                        : 'Available'}
                   </Text>
                 </View>
-                <Pressable
-                  style={[styles.toggleBtn, isOff && styles.toggleBtnOff]}
-                  onPress={() => toggleDate(d)}
-                  disabled={isSaving}
-                >
-                  {isSaving ? (
-                    <ActivityIndicator size="small" color={isOff ? colors.white : colors.primary} />
-                  ) : (
-                    <Text style={[styles.toggleBtnText, isOff && styles.toggleBtnTextOff]}>
-                      {isOff ? 'Mark available' : 'Mark off'}
-                    </Text>
-                  )}
-                </Pressable>
+                {isBooked ? (
+                  <View style={[styles.toggleBtn, styles.toggleBtnBooked]}>
+                    <Text style={[styles.toggleBtnText, styles.toggleBtnTextBooked]}>Booked</Text>
+                  </View>
+                ) : (
+                  <Pressable
+                    style={[styles.toggleBtn, isOff && styles.toggleBtnOff]}
+                    onPress={() => toggleDate(d)}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? (
+                      <ActivityIndicator size="small" color={isOff ? colors.white : colors.primary} />
+                    ) : (
+                      <Text style={[styles.toggleBtnText, isOff && styles.toggleBtnTextOff]}>
+                        {isOff ? 'Mark available' : 'Mark off'}
+                      </Text>
+                    )}
+                  </Pressable>
+                )}
               </Card>
             );
           })}
@@ -203,6 +253,7 @@ const styles = StyleSheet.create({
   dayLabel: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.textPrimary },
   dayStatus: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   dayStatusOff: { color: colors.danger, fontWeight: fontWeight.semibold },
+  dayStatusBooked: { color: colors.primary, fontWeight: fontWeight.semibold },
   toggleBtn: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
@@ -211,6 +262,8 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   toggleBtnOff: { backgroundColor: colors.danger, borderColor: colors.danger },
+  toggleBtnBooked: { backgroundColor: colors.surfaceMuted, borderColor: colors.border },
+  toggleBtnTextBooked: { color: colors.primary },
   toggleBtnText: { fontSize: fontSize.xs, fontWeight: fontWeight.semibold, color: colors.primary },
   toggleBtnTextOff: { color: colors.white },
 });

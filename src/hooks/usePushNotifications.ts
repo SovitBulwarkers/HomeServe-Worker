@@ -2,14 +2,14 @@ import { useEffect, useRef } from "react";
 import { Platform, PermissionsAndroid } from "react-native";
 import * as Device from "expo-device";
 import { useRouter } from "expo-router";
-import messaging, {
-  FirebaseMessagingTypes,
-} from "@react-native-firebase/messaging";
-import notifee, {
+import {
+  messaging,
+  notifee,
   AndroidImportance,
   AndroidStyle,
   EventType,
-} from "@notifee/react-native";
+} from "../utils/safeNotifications";
+import type { FirebaseMessagingTypes } from "@react-native-firebase/messaging";
 import { WorkerAPI } from "../api/endpoints";
 
 type NotificationData = {

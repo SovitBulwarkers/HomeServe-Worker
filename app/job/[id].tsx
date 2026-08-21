@@ -370,6 +370,11 @@ export default function JobDetail() {
   const totalAmount = job.finalAmount ?? job.totalAmount ?? job.total ?? 0;
 
   const isCodPayment = checkIsCodPayment(job);
+  const itemsSubtotal = (job.items ?? []).reduce(
+    (sum, item) => sum + (item.price ?? 0) * (item.quantity ?? 1),
+    0,
+  );
+  const baseAmount = itemsSubtotal > 0 ? itemsSubtotal : (job.totalAmount ?? totalAmount);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top', 'bottom']}>
@@ -731,6 +736,92 @@ export default function JobDetail() {
               tone={isCodPayment ? 'warning' : 'success'}
             />
           </View>
+
+          {/* PRICE BREAKDOWN SECTION */}
+          <View style={styles.breakdownDivider} />
+          <Text style={styles.breakdownSectionTitle}>Price Breakdown</Text>
+
+          {/* Base Services Subtotal */}
+          <View style={styles.paymentDetailRow}>
+            <Text style={styles.paymentDetailLabel}>Base Service Amount</Text>
+            <Text style={styles.paymentDetailValue}>
+              ₹{baseAmount.toFixed(2)}
+            </Text>
+          </View>
+
+          {/* Extra Charges */}
+          {(job.extraCharges ?? []).map((ch, idx) => {
+            const isApproved = ch.status === 'APPROVED';
+            const isPending = ch.status === 'PENDING';
+            return (
+              <View key={ch.id ?? idx} style={styles.paymentDetailRow}>
+                <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                  <Text style={styles.paymentDetailLabel}>
+                    Extra: {ch.label}
+                  </Text>
+                  <Text style={styles.breakdownSubText}>
+                    {isApproved ? 'Approved by customer' : isPending ? 'Pending customer approval' : 'Rejected'}
+                    {ch.reason ? ` · ${ch.reason}` : ''}
+                  </Text>
+                </View>
+                <Text
+                  style={[
+                    styles.paymentDetailValue,
+                    isPending && { color: colors.warning },
+                    ch.status === 'REJECTED' && { textDecorationLine: 'line-through', opacity: 0.5 },
+                  ]}
+                >
+                  +₹{ch.amount.toFixed(2)} {isPending ? '(Pending)' : ''}
+                </Text>
+              </View>
+            );
+          })}
+
+          {/* Extra Time Requests */}
+          {(job.extraTimeRequests ?? []).map((t, idx) => {
+            const isApproved = t.status === 'APPROVED';
+            const isPending = t.status === 'PENDING';
+            return (
+              <View key={t.id ?? idx} style={styles.paymentDetailRow}>
+                <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                  <Text style={styles.paymentDetailLabel}>
+                    Extra Time (+{t.requestedMinutes} mins)
+                  </Text>
+                  <Text style={styles.breakdownSubText}>
+                    {isApproved ? 'Approved by customer' : isPending ? 'Pending customer approval' : 'Rejected'}
+                    {t.reason ? ` · ${t.reason}` : ''}
+                  </Text>
+                </View>
+                <Text
+                  style={[
+                    styles.paymentDetailValue,
+                    isPending && { color: colors.warning },
+                    t.status === 'REJECTED' && { textDecorationLine: 'line-through', opacity: 0.5 },
+                  ]}
+                >
+                  +₹{t.amount.toFixed(2)} {isPending ? '(Pending)' : ''}
+                </Text>
+              </View>
+            );
+          })}
+
+          {/* Taxes & Fees */}
+          {job.taxAmount && job.taxAmount > 0 ? (
+            <View style={styles.paymentDetailRow}>
+              <Text style={styles.paymentDetailLabel}>Taxes & Service Fees</Text>
+              <Text style={styles.paymentDetailValue}>+₹{job.taxAmount.toFixed(2)}</Text>
+            </View>
+          ) : null}
+
+          {/* Discount */}
+          {job.discountAmount && job.discountAmount > 0 ? (
+            <View style={styles.paymentDetailRow}>
+              <Text style={styles.paymentDetailLabel}>Discount Applied</Text>
+              <Text style={[styles.paymentDetailValue, { color: colors.success }]}>
+                -₹{job.discountAmount.toFixed(2)}
+              </Text>
+            </View>
+          ) : null}
 
           <View style={styles.paymentTotalRow}>
             <Text style={styles.paymentTotalLabel}>{isCodPayment ? 'Cash to Collect' : 'Total Amount'}</Text>
@@ -4458,5 +4549,57 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: fontSize.xs,
     color: colors.primaryDark,
+  },
+  paymentDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.xs + 2,
+  },
+  paymentDetailLabel: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+  },
+  paymentDetailValue: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.textPrimary,
+  },
+  paymentTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+    paddingTop: spacing.md,
+    marginTop: spacing.sm,
+  },
+  paymentTotalLabel: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  paymentTotalValue: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.extrabold,
+    color: colors.primary,
+  },
+  breakdownDivider: {
+    height: 1,
+    backgroundColor: colors.borderLight,
+    marginVertical: spacing.sm,
+  },
+  breakdownSectionTitle: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.xs,
+  },
+  breakdownSubText: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginTop: 2,
   },
 });

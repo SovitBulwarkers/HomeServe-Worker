@@ -40,8 +40,12 @@ export default function JobChat() {
       try {
         const [jobRes, msgRes] = await Promise.all([JobsAPI.getById(id), ChatAPI.getMessages(id, 1, 100)]);
         if (!mounted) return;
+        const rawMsgs = msgRes.data.data ?? [];
+        const sorted = rawMsgs
+          .slice()
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         setJob(jobRes.data.data);
-        setMessages((msgRes.data.data ?? []).slice().reverse());
+        setMessages(sorted);
       } catch {
         // Non-fatal — chat just starts empty.
       } finally {
@@ -69,7 +73,16 @@ export default function JobChat() {
       const onDisconnect = () => setConnected(false);
       const onNewMessage = (msg: ChatMessage) => {
         if (msg.bookingId !== id) return;
-        setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          const tempIdx = prev.findIndex((m) => m.id.startsWith('temp-') && m.message === msg.message);
+          if (tempIdx !== -1) {
+            const copy = [...prev];
+            copy[tempIdx] = msg;
+            return copy;
+          }
+          return [...prev, msg];
+        });
       };
 
       socket.on('connect', onConnect);
@@ -98,18 +111,41 @@ export default function JobChat() {
   const send = async () => {
     const body = text.trim();
     if (!body || !id) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const tempMsg: ChatMessage = {
+      id: tempId,
+      bookingId: id,
+      senderId: worker?.id || '',
+      senderType: 'WORKER',
+      message: body,
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    };
+
     setText('');
     setSending(true);
+    setMessages((prev) => [...prev, tempMsg]);
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+
     try {
-      // The backend broadcasts this over the 'new-message' socket event to
-      // everyone in the booking room (including us, since we joined above),
-      // so we don't need to append it locally — the listener above will.
-      await ChatAPI.sendMessage(id, body);
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+      const res = await ChatAPI.sendMessage(id, body);
+      const serverMsg = res.data?.data;
+      if (serverMsg) {
+        setMessages((prev) => {
+          const hasReal = prev.some((m) => m.id === serverMsg.id);
+          if (hasReal) {
+            return prev.filter((m) => m.id !== tempId);
+          }
+          return prev.map((m) => (m.id === tempId ? serverMsg : m));
+        });
+      }
     } catch {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setText(body);
     } finally {
       setSending(false);
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
     }
   };
 
@@ -141,10 +177,24 @@ export default function JobChat() {
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
             renderItem={({ item }) => {
               const isMe = item.senderType === 'WORKER' || item.senderId === worker?.id;
+              const formattedTime = item.createdAt
+                ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '';
               return (
                 <View style={[styles.bubbleRow, isMe && styles.bubbleRowMe]}>
                   <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
                     <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{item.message}</Text>
+                    <View style={styles.bubbleMeta}>
+                      <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>{formattedTime}</Text>
+                      {isMe && (
+                        <Ionicons
+                          name={item.isRead ? 'checkmark-done' : 'checkmark'}
+                          size={14}
+                          color={item.isRead ? '#90CAF9' : 'rgba(255,255,255,0.75)'}
+                          style={{ marginLeft: 3 }}
+                        />
+                      )}
+                    </View>
                   </View>
                 </View>
               );
@@ -176,7 +226,7 @@ const styles = StyleSheet.create({
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   headerName: { fontSize: fontSize.md, fontWeight: fontWeight.bold, color: colors.textPrimary },
   headerSub: { fontSize: fontSize.xs, color: colors.textMuted },
-  list: { padding: spacing.lg, gap: spacing.sm },
+  list: { padding: spacing.lg, gap: spacing.sm, flexGrow: 1 },
   bubbleRow: { flexDirection: 'row' },
   bubbleRowMe: { justifyContent: 'flex-end' },
   bubble: { maxWidth: '78%', borderRadius: radius.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
@@ -184,6 +234,9 @@ const styles = StyleSheet.create({
   bubbleMe: { backgroundColor: colors.primary, borderBottomRightRadius: 4 },
   bubbleText: { fontSize: fontSize.md, color: colors.textPrimary },
   bubbleTextMe: { color: colors.white },
+  bubbleMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 4 },
+  bubbleTime: { fontSize: 10, color: colors.textMuted },
+  bubbleTimeMe: { color: 'rgba(255,255,255,0.75)' },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderLight, backgroundColor: colors.surface },
   input: { flex: 1, maxHeight: 100, backgroundColor: colors.surfaceMuted, borderRadius: radius.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, fontSize: fontSize.md, color: colors.textPrimary },
   sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },

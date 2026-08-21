@@ -1,41 +1,55 @@
-import messaging, {
-  FirebaseMessagingTypes,
-} from "@react-native-firebase/messaging";
-import notifee, {
+import {
+  messaging,
+  notifee,
   AndroidImportance,
   AndroidStyle,
-} from "@notifee/react-native";
+  isNativeNotificationSupported,
+} from "./src/utils/safeNotifications";
 
-messaging().setBackgroundMessageHandler(
-  async (remoteMessage: FirebaseMessagingTypes.RemoteMessage) => {
-    const data = (remoteMessage.data ?? {}) as Record<string, string>;
-    const title =
-      remoteMessage.notification?.title ?? data.title ?? "HomeServe Pro";
-    const body = remoteMessage.notification?.body ?? data.body ?? "";
-    const imageUrl =
-      remoteMessage.notification?.android?.imageUrl ?? data.imageUrl;
+if (isNativeNotificationSupported) {
+  try {
+    messaging().setBackgroundMessageHandler(
+      async (remoteMessage: any) => {
+        const data = (remoteMessage.data ?? {}) as Record<string, string>;
+        const title =
+          remoteMessage.notification?.title ?? data.title ?? "HomeServe Pro";
+        const body = remoteMessage.notification?.body ?? data.body ?? "";
+        const imageUrl =
+          remoteMessage.notification?.android?.imageUrl ?? data.imageUrl;
 
-    await notifee.createChannel({
-      id: "default",
-      name: "Default",
-      importance: AndroidImportance.HIGH,
-    });
+        await notifee.createChannel({
+          id: "default",
+          name: "Default",
+          importance: AndroidImportance.HIGH,
+        });
 
-    await notifee.displayNotification({
-      title,
-      body,
-      data,
-      android: {
-        channelId: "default",
-        smallIcon: "ic_launcher",
-        pressAction: { id: "default" },
-        ...(imageUrl && {
-          largeIcon: imageUrl,
-          style: { type: AndroidStyle.BIGPICTURE, picture: imageUrl },
-        }),
+        await notifee.displayNotification({
+          title,
+          body,
+          data,
+          android: {
+            channelId: "default",
+            smallIcon: "ic_launcher",
+            pressAction: { id: "default" },
+            ...(imageUrl && {
+              largeIcon: imageUrl,
+              style: { type: AndroidStyle.BIGPICTURE, picture: imageUrl },
+            }),
+          },
+        });
       },
+    );
+  } catch (e) {
+    console.warn("Failed to register background message handler:", e);
+  }
+
+  try {
+    notifee.onBackgroundEvent(async () => {
+      // Background event handler registered at app entry point for Notifee
     });
-  },
-);
+  } catch (e) {
+    console.warn("Failed to register Notifee background event handler:", e);
+  }
+}
 
 require("expo-router/entry");

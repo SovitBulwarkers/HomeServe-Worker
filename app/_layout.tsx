@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View, ActivityIndicator, Platform, PermissionsAndroid } from 'react-native';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
-// import notifee from '@notifee/react-native';
+import { notifee } from '../src/utils/safeNotifications';
 import { AuthProvider, useAuth } from '../src/store/auth-context';
 import { colors } from '../src/theme';
 import { usePushNotifications } from '../src/hooks/usePushNotifications';
