@@ -5,7 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 // (EXPO_PUBLIC_API_BASE_URL) — see .env.example. Falls back to the deployed
 // URL only if the env var is missing.
 export const LOCAL_HOST =
-  process.env.EXPO_PUBLIC_API_BASE_URL || 'https://nextjs-backend-with-fix.onrender.com';
+  process.env.EXPO_PUBLIC_API_BASE_URL || 'https://homeserve-api.duckdns.org';
 
 export const API_BASE_URL = `${LOCAL_HOST}/api/v1`;
 
