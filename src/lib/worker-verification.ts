@@ -4,7 +4,7 @@ import { Worker, WorkerDocument } from '../api/endpoints';
 // application can be considered "ready for admin review". Kept in one
 // place so the onboarding flow, the root navigation guard, and the
 // documents screen all agree on what "complete" means.
-export const REQUIRED_DOC_TYPES = ['SELFIE', 'ID_PROOF', 'ADDRESS_PROOF'] as const;
+export const REQUIRED_DOC_TYPES = ['PROFILE_PHOTO', 'AADHAAR_FRONT', 'AADHAAR_BACK', 'PAN_CARD'] as const;
 
 export function hasRequiredDocuments(worker: Pick<Worker, 'documents'> | null | undefined): boolean {
   if (!worker?.documents?.length) return false;

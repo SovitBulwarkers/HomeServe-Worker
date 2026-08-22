@@ -53,6 +53,7 @@ export interface Worker {
   latitude?: number | null;
   longitude?: number | null;
   experience: number;
+  language?: string | null;
   skills?: WorkerSkill[];
   documents?: WorkerDocument[];
   bankDetail?: BankDetail | null;
@@ -183,7 +184,9 @@ export interface Job {
     label: string;
     amount: number;
     reason?: string;
+    photos?: string[];
     status: "PENDING" | "APPROVED" | "REJECTED";
+    paymentStatus?: "NOT_REQUIRED" | "PENDING" | "PAID";
     createdAt: string;
   }[];
   extraTimeRequests?: {
@@ -273,7 +276,7 @@ export const WorkerAPI = {
     data: Partial<
       Pick<
         Worker,
-        "name" | "email" | "avatar" | "bio" | "experience" | "serviceRadius"
+        "name" | "email" | "avatar" | "bio" | "experience" | "serviceRadius" | "language"
       >
     >,
   ) => api.put("/workers/profile", data),
@@ -392,7 +395,7 @@ export const JobsAPI = {
   // rejects in their app. Nothing is added to the total until they do.
   requestExtraCharge: (
     id: string,
-    data: { label: string; amount: number; reason?: string },
+    data: { label: string; amount: number; reason?: string; photos?: string[] },
   ) => api.post(`/bookings/${id}/extra-charge`, data),
   // Ask the customer to approve extending an in-progress job past its
   // scheduled duration. A small free "grace" allowance is applied
@@ -402,12 +405,10 @@ export const JobsAPI = {
     id: string,
     data: { extraMinutes: number; reason?: string },
   ) => api.post(`/bookings/${id}/extra-time`, data),
-  // This worker's own real history with a specific customer — past
-  // bookings, ratings *they* gave, any complaint on record. Used to show a
-  // heads-up on an incoming job request, mirroring the warning the
-  // customer app shows before rebooking a worker who did a bad job.
-  getHistoryWithCustomer: (userId: string) =>
-    api.get<{ data: CustomerHistory }>(`/bookings/worker/history/customer/${userId}`),
+  markExtraPaymentReceived: (
+    id: string,
+    data: { type: 'charge' | 'time'; requestId: string },
+  ) => api.post(`/bookings/${id}/extra-payment-received`, data),
   // Chronological event timeline for a booking — created, worker
   // declines, accepted, rescheduled, running-late reports, no-show
   // reassignment, started, completed/cancelled/rejected — already sorted
@@ -439,26 +440,6 @@ export interface BookingTimeline {
   bookingNumber: string;
   events: TimelineEvent[];
 };
-
-export interface CustomerHistory {
-  workerId: string;
-  totalBookings: number;
-  completedBookings: number;
-  cancelledBookings: number;
-  averageRatingGiven: number | null;
-  hasComplaint: boolean;
-  complaints: { bookingId: string; rating: number; comment: string; createdAt: string }[];
-  bookings: {
-    id: string;
-    bookingNumber: string;
-    status: string;
-    scheduledDate: string;
-    serviceNames: string[];
-    finalAmount: number;
-    rating: number | null;
-    comment: string | null;
-  }[];
-}
 
 // ---------- Chat ----------
 export interface ChatMessage {
@@ -733,7 +714,7 @@ export const DisputesAPI = {
 
 // ---------- Upload ----------
 export const UploadAPI = {
-  uploadImage: (formData: FormData, folder = "workers") =>
+  uploadImage: (formData: FormData, folder = "general") =>
     api.post<{ data: { url: string } }>("/upload/single", formData, {
       headers: { "Content-Type": "multipart/form-data" },
       params: { folder },

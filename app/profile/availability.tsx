@@ -89,7 +89,7 @@ export default function AvailabilityScreen() {
       const map: Record<string, boolean> = {};
       if (Array.isArray(list)) {
         for (const entry of list) {
-          const isOff = entry.isOff ?? (entry.isAvailable === false) ?? (entry.status === 'OFF');
+          const isOff = entry.isOff ?? ((entry.isAvailable === false) || (entry.status === 'OFF'));
           const dStr = entry.date || entry.day || entry.startDate;
           if (isOff && dStr) {
             map[istDateKeyFromIso(dStr)] = true;

@@ -226,7 +226,7 @@ export default function Dashboard() {
               const serviceName =
                 job.items?.map((i) => i.service?.name).filter(Boolean).join(', ') || 'Service request';
               const locationText =
-                [job.address?.addressLine1, job.address?.city].filter(Boolean).join(', ') || 'Address in details';
+                [job.address?.fullAddress, job.address?.city].filter(Boolean).join(', ') || 'Address in details';
               const customerName =
                 job.user?.name || (job as any).customer?.name || 'Customer';
 

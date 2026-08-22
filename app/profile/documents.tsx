@@ -9,10 +9,11 @@ import { UploadAPI, WorkerAPI, WorkerDocument } from '../../src/api/endpoints';
 import ImagePickerModal from '../../src/components/ImagePickerModal';
 
 const REQUIRED_DOCS = [
-  { type: 'SELFIE', label: 'Live selfie', useCamera: 'front' as const },
-  { type: 'ID_PROOF', label: 'Government ID (Aadhaar / PAN)' },
-  { type: 'ADDRESS_PROOF', label: 'Address proof' },
-  { type: 'CERTIFICATE', label: 'Trade certificate (optional)' },
+  { type: 'PROFILE_PHOTO', label: 'Live selfie', useCamera: 'front' as const },
+  { type: 'AADHAAR_FRONT', label: 'Aadhaar Card — Front' },
+  { type: 'AADHAAR_BACK', label: 'Aadhaar Card — Back' },
+  { type: 'PAN_CARD', label: 'PAN Card' },
+  { type: 'POLICE_VERIFICATION', label: 'Police verification (optional)' },
 ];
 
 export default function Documents() {

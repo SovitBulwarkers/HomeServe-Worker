@@ -37,12 +37,12 @@ interface PermissionState {
 
 function withTimeout<T>(
   promise: Promise<T>,
-  fallback: T,
+  fallback: T | null,
   ms = 2500,
-): Promise<T> {
+): Promise<T | null> {
   return Promise.race([
     promise,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+    new Promise<T | null>((resolve) => setTimeout(() => resolve(fallback), ms)),
   ]);
 }
 
@@ -70,7 +70,7 @@ export default function PermissionsModal({
       let notifGranted = false;
 
       try {
-        const notifSettings = await withTimeout(
+        const notifSettings: any = await withTimeout(
           notifee.getNotificationSettings(),
           null,
         );
@@ -117,7 +117,7 @@ export default function PermissionsModal({
             PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
           );
         }
-        const notifRes = await withTimeout(notifee.requestPermission(), null);
+        const notifRes: any = await withTimeout(notifee.requestPermission(), null);
         if (notifRes && notifRes.authorizationStatus >= 1) {
           notifGranted = true;
         }

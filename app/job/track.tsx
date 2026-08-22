@@ -110,8 +110,18 @@ export default function TrackJob() {
   }, [job?.address?.latitude, job?.address?.longitude]);
 
   const openNavigationApp = async (type: 'google' | 'apple' | 'geo') => {
-    const latitude = job?.address?.latitude || 28.6139;
-    const longitude = job?.address?.longitude || 77.2090;
+    const latitude = job?.address?.latitude;
+    const longitude = job?.address?.longitude;
+    if (latitude == null || longitude == null) {
+      // No hardcoded city fallback here — silently navigating to a
+      // Delhi coordinate for a job that isn't actually in Delhi is worse
+      // than telling the worker we don't have an address to navigate to.
+      Alert.alert(
+        'No address on file',
+        'This job has no location set, so navigation can\u2019t be started. Please contact the customer or support.',
+      );
+      return;
+    }
     let url = '';
 
     if (type === 'google') {
@@ -147,8 +157,12 @@ export default function TrackJob() {
   // Server ETA wins when the backend has enough to compute one (an actual
   // reported location + address coordinates); otherwise fall back to the
   // on-device straight-line guess from the live location watcher so the
-  // screen never just shows nothing while the server catches up.
+  // screen never just shows nothing while the server catches up. The
+  // fallback is clearly flagged as "Estimated" (see isEtaEstimated below)
+  // so it's never mistaken for the server-confirmed figure the customer
+  // app is also showing.
   const serverEtaMinutes = eta?.available ? eta.etaMinutes : null;
+  const isEtaEstimated = serverEtaMinutes == null && driveTime != null;
   const displayEtaLabel = serverEtaMinutes != null ? `${serverEtaMinutes} mins` : driveTime ?? '—';
   const displayDistanceKm = eta?.available && eta.distanceKm != null ? eta.distanceKm : distance;
 
@@ -197,16 +211,22 @@ export default function TrackJob() {
             {etaLoading ? (
               <ActivityIndicator size="small" color={colors.info} style={{ marginTop: 4 }} />
             ) : (
-              <Text style={styles.metricValue}>{displayEtaLabel}</Text>
+              <>
+                <Text style={styles.metricValue}>{displayEtaLabel}</Text>
+                {isEtaEstimated ? <Text style={styles.etaEstimatedTag}>Estimated</Text> : null}
+              </>
             )}
           </Card>
         </View>
 
-        {!etaLoading && eta && !eta.available ? (
+        {!etaLoading && !eta?.available ? (
           <View style={styles.etaNoticeBox}>
             <Ionicons name="information-circle-outline" size={15} color={colors.textMuted} />
             <Text style={styles.etaNoticeText}>
-              {eta.reason ?? 'ETA will appear once your location is being shared with this job.'}
+              {eta?.reason ??
+                (isEtaEstimated
+                  ? 'Showing a rough on-device estimate — the live server ETA will appear shortly.'
+                  : 'ETA will appear once your location is being shared with this job.')}
             </Text>
           </View>
         ) : null}
@@ -339,6 +359,12 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: colors.success,
+  },
+  etaEstimatedTag: {
+    fontSize: 10,
+    fontWeight: fontWeight.semibold,
+    color: colors.textMuted,
+    marginTop: 1,
   },
   etaNoticeBox: {
     flexDirection: 'row',

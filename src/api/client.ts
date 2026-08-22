@@ -9,6 +9,21 @@ export const LOCAL_HOST =
 
 export const API_BASE_URL = `${LOCAL_HOST}/api/v1`;
 
+// If EXPO_PUBLIC_API_BASE_URL isn't set (no .env, or the key is missing),
+// the app silently falls back to the deployed URL above — which is fine in
+// production builds, but during local development this used to cause
+// confusing bugs where a dev's changes never seemed to reach "their"
+// backend because the app was actually talking to the deployed one the
+// whole time. Surface that loudly instead of staying silent about it.
+if (__DEV__ && !process.env.EXPO_PUBLIC_API_BASE_URL) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[HomeServe] EXPO_PUBLIC_API_BASE_URL is not set — falling back to ' +
+      `${LOCAL_HOST}. Copy .env.example to .env and set it to your local ` +
+      'backend URL if that is not what you intended.',
+  );
+}
+
 export const TOKEN_KEY = 'homeserve_worker_access_token';
 export const REFRESH_KEY = 'homeserve_worker_refresh_token';
 

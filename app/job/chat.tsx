@@ -69,6 +69,13 @@ export default function JobChat() {
       const onConnect = () => {
         setConnected(true);
         socket.emit('join-booking', { bookingId: id });
+        // Clear the unread badge (jobs list, tab bar) for this booking's
+        // chat now that the worker is actually looking at it. There's no
+        // REST endpoint for this — booking-chat read receipts are only
+        // ever flipped via this socket event — so without it the unread
+        // count returned by GET /chat/:bookingId/unread would never
+        // reset, even after the worker has read every message.
+        socket.emit('mark-read', { bookingId: id });
       };
       const onDisconnect = () => setConnected(false);
       const onNewMessage = (msg: ChatMessage) => {
@@ -83,6 +90,10 @@ export default function JobChat() {
           }
           return [...prev, msg];
         });
+        // A new message can arrive from the customer while this screen is
+        // already open and focused — mark it read immediately rather than
+        // waiting for the next visit, so the badge doesn't falsely persist.
+        socket.emit('mark-read', { bookingId: id });
       };
 
       socket.on('connect', onConnect);

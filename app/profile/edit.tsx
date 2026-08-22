@@ -10,6 +10,18 @@ import { useAuth } from '../../src/store/auth-context';
 import { UploadAPI, WorkerAPI } from '../../src/api/endpoints';
 import ImagePickerModal from '../../src/components/ImagePickerModal';
 
+// The handful of languages HomeServe currently supports for customer-facing
+// worker profiles. Backend just stores a free-form language code string, so
+// this is intentionally a small curated list rather than every locale.
+const LANGUAGE_OPTIONS: { code: string; label: string }[] = [
+  { code: 'en', label: 'English' },
+  { code: 'hi', label: 'Hindi' },
+  { code: 'or', label: 'Odia' },
+  { code: 'bn', label: 'Bengali' },
+  { code: 'te', label: 'Telugu' },
+  { code: 'ta', label: 'Tamil' },
+];
+
 export default function EditProfile() {
   const router = useRouter();
   const { worker, refreshWorker } = useAuth();
@@ -18,6 +30,7 @@ export default function EditProfile() {
   const [bio, setBio] = useState(worker?.bio ?? '');
   const [experience, setExperience] = useState(String(worker?.experience ?? ''));
   const [serviceRadius, setServiceRadius] = useState(String(worker?.serviceRadius ?? '5'));
+  const [language, setLanguage] = useState(worker?.language ?? 'en');
   const [avatar, setAvatar] = useState(worker?.avatar ?? null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -32,7 +45,7 @@ export default function EditProfile() {
         name: 'avatar.jpg',
         type: 'image/jpeg',
       } as any);
-      const { data } = await UploadAPI.uploadImage(formData, 'workers');
+      const { data } = await UploadAPI.uploadImage(formData, 'avatars');
       const url = data.data?.url ?? (data as any).url;
       setAvatar(url);
     } catch {
@@ -55,6 +68,7 @@ export default function EditProfile() {
         bio: bio.trim() || undefined,
         experience: experience ? Number(experience) : undefined,
         serviceRadius: serviceRadius ? Number(serviceRadius) : undefined,
+        language,
         avatar: avatar || undefined,
       });
       await refreshWorker();
@@ -93,6 +107,21 @@ export default function EditProfile() {
         <Input label="Years of experience" value={experience} onChangeText={setExperience} keyboardType="number-pad" />
         <Input label="Service radius (km)" value={serviceRadius} onChangeText={setServiceRadius} keyboardType="number-pad" />
 
+        <Text style={styles.fieldLabel}>Preferred language</Text>
+        <View style={styles.languageRow}>
+          {LANGUAGE_OPTIONS.map((opt) => (
+            <Pressable
+              key={opt.code}
+              onPress={() => setLanguage(opt.code)}
+              style={[styles.languageChip, language === opt.code && styles.languageChipActive]}
+            >
+              <Text style={[styles.languageChipText, language === opt.code && styles.languageChipTextActive]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
         <Button title="Save changes" onPress={save} loading={saving} style={{ marginTop: spacing.md }} />
       </ScrollView>
       </KeyboardAvoidingView>
@@ -128,4 +157,17 @@ const styles = StyleSheet.create({
     ...shadow.subtle,
   },
   avatarImage: { width: '100%', height: '100%' },
+  fieldLabel: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.textSecondary, marginBottom: spacing.xs, marginTop: spacing.xs },
+  languageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.md },
+  languageChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  languageChipActive: { backgroundColor: colors.primaryLight, borderColor: colors.primary },
+  languageChipText: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: fontWeight.medium },
+  languageChipTextActive: { color: colors.primary, fontWeight: fontWeight.bold },
 });

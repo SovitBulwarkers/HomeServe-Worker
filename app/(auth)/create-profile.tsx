@@ -90,7 +90,7 @@ export default function CreateProfile() {
         name: 'avatar.jpg',
         type: 'image/jpeg',
       } as any);
-      const { data } = await UploadAPI.uploadImage(formData, 'workers');
+      const { data } = await UploadAPI.uploadImage(formData, 'avatars');
       const url = data.data?.url ?? (data as any).url;
       setAvatar(url);
     } catch {

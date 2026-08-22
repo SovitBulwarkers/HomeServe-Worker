@@ -37,17 +37,20 @@ export default function JobLocationMap({
   const hasBoth =
     workerLat != null && workerLng != null && customerLat != null && customerLng != null;
 
-  const effCustomerLat = customerLat ?? 28.6139;
-  const effCustomerLng = customerLng ?? 77.2090;
-  const effWorkerLat = workerLat ?? (effCustomerLat - 0.012);
-  const effWorkerLng = workerLng ?? (effCustomerLng - 0.012);
-
   const tileUrl = satellite
     ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
     : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
   const tileAttribution = satellite
     ? 'Tiles &copy; Esri'
     : '&copy; OpenStreetMap contributors';
+
+  // Only ever rendered into the WebView below when hasBoth is true (see the
+  // early return further down), so the `?? 0` here is just to satisfy
+  // TypeScript's null checks — it's never actually used as a real coordinate.
+  const effWorkerLat = workerLat ?? 0;
+  const effWorkerLng = workerLng ?? 0;
+  const effCustomerLat = customerLat ?? 0;
+  const effCustomerLng = customerLng ?? 0;
 
   const html = useMemo(() => {
     return `

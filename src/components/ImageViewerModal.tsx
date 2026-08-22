@@ -5,10 +5,10 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  Image,
   SafeAreaView,
   Dimensions,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, fontSize, fontWeight, radius, spacing } from '../theme';
 
@@ -48,7 +48,7 @@ export default function ImageViewerModal({
           <Image
             source={{ uri: imageUrl }}
             style={styles.image}
-            resizeMode="contain"
+            contentFit="contain"
           />
         </View>
       </SafeAreaView>

@@ -20,22 +20,28 @@ interface DocSlot {
 
 const SLOTS: DocSlot[] = [
   {
-    type: 'SELFIE',
+    type: 'PROFILE_PHOTO',
     label: 'Live Photo / Selfie',
     hint: 'Clear front-facing photo of your face',
     icon: 'camera-outline',
     useCamera: 'front',
   },
   {
-    type: 'ID_PROOF',
-    label: 'Government Photo ID',
-    hint: 'Aadhaar Card, PAN Card, or Driving License',
+    type: 'AADHAAR_FRONT',
+    label: 'Aadhaar Card — Front',
+    hint: 'Photo of the front side of your Aadhaar card',
     icon: 'card-outline',
   },
   {
-    type: 'ADDRESS_PROOF',
-    label: 'Address Proof',
-    hint: 'Electricity Bill, Voter ID, or Utility Statement',
+    type: 'AADHAAR_BACK',
+    label: 'Aadhaar Card — Back',
+    hint: 'Photo of the back side of your Aadhaar card',
+    icon: 'card-outline',
+  },
+  {
+    type: 'PAN_CARD',
+    label: 'PAN Card',
+    hint: 'Photo of your PAN card',
     icon: 'document-text-outline',
   },
 ];

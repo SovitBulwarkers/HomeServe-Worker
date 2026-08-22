@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator, RefreshControl, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
@@ -9,7 +9,8 @@ import { colors, fontSize, fontWeight, spacing, radius } from '../../src/theme';
 import { Card, StatusPill, statusTone, statusLabel, EmptyState } from '../../src/components/ui';
 import Button from '../../src/components/Button';
 import JobLocationMap from '../../src/components/JobLocationMap';
-import { JobsAPI, Job, JobStatus, PreBookingChatAPI, checkIsCodPayment } from '../../src/api/endpoints';
+import { JobsAPI, Job, JobStatus, PreBookingChatAPI, ChatAPI, checkIsCodPayment } from '../../src/api/endpoints';
+import { messaging } from '../../src/utils/safeNotifications';
 
 type TabKey = 'requests' | 'upcoming' | 'history';
 
@@ -29,6 +30,7 @@ export default function Jobs() {
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [requestsReason, setRequestsReason] = useState<string | null>(null);
   const [inquiryUnread, setInquiryUnread] = useState(0);
+  const [chatUnread, setChatUnread] = useState<Record<string, number>>({});
   const tabRef = useRef(tab);
   tabRef.current = tab;
 
@@ -58,20 +60,43 @@ export default function Jobs() {
   const load = useCallback(async (which: TabKey, opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     try {
+      let loadedJobs: Job[] = [];
       if (which === 'requests') {
         const { data } = await JobsAPI.pendingRequests();
-        setJobs(data.data ?? []);
+        loadedJobs = data.data ?? [];
+        setJobs(loadedJobs);
         setRequestsReason(data.meta?.reason ?? null);
       } else if (which === 'upcoming') {
         const { data } = await JobsAPI.upcoming();
-        setJobs(data.data ?? []);
+        loadedJobs = data.data ?? [];
+        setJobs(loadedJobs);
       } else {
         const results = await Promise.all(
           (['COMPLETED', 'CANCELLED', 'REJECTED'] as JobStatus[]).map((s) => JobsAPI.myJobs(s)),
         );
         const merged = results.flatMap((r) => r.data.data ?? []);
         merged.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+        loadedJobs = merged;
         setJobs(merged);
+      }
+
+      // Chat only matters for active/upcoming jobs — a pending request or
+      // a finished/cancelled job has no reason to show an unread badge.
+      if (which === 'upcoming' && loadedJobs.length > 0) {
+        const entries = await Promise.all(
+          loadedJobs.map(async (j) => {
+            try {
+              const { data } = await ChatAPI.getUnreadCount(j.id);
+              const count = (data as any)?.data?.count ?? 0;
+              return [j.id, count] as const;
+            } catch {
+              return [j.id, 0] as const;
+            }
+          }),
+        );
+        setChatUnread(Object.fromEntries(entries));
+      } else if (which !== 'upcoming') {
+        setChatUnread({});
       }
     } catch {
       setJobs([]);
@@ -224,6 +249,14 @@ export default function Jobs() {
                     ) : null}
                   </View>
                   <StatusPill label={statusLabel(item.status)} tone={statusTone(item.status)} />
+                  {chatUnread[item.id] > 0 ? (
+                    <View style={styles.chatUnreadDot}>
+                      <Ionicons name="chatbubble" size={10} color={colors.white} />
+                      <Text style={styles.chatUnreadDotText}>
+                        {chatUnread[item.id] > 9 ? '9+' : chatUnread[item.id]}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 {item.preferredWorkerId ? (
@@ -249,6 +282,57 @@ export default function Jobs() {
                     <Ionicons name="location-outline" size={14} color={colors.textMuted} />
                     <Text style={styles.locationText} numberOfLines={1}>
                       {item.address.fullAddress || item.address.city}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {/* What the customer says the problem is — helps decide whether
+                    to bring extra parts/tools before accepting. */}
+                {item.issueType || item.issueDetail ? (
+                  <View style={styles.issueCard}>
+                    <View style={styles.issueHeaderRow}>
+                      <Ionicons name="construct-outline" size={13} color={colors.textSecondary} />
+                      <Text style={styles.issueLabel}>
+                        {item.issueType || 'Reported issue'}
+                      </Text>
+                    </View>
+                    {item.issueDetail ? (
+                      <Text style={styles.issueDetailText} numberOfLines={3}>
+                        {item.issueDetail}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {/* On-site contact — the person to actually meet/call at the
+                    address, which may not be the account holder (item.user). */}
+                {item.contactName || item.contactPhone ? (
+                  <View style={styles.contactRow}>
+                    <Ionicons name="person-outline" size={13} color={colors.textSecondary} />
+                    <Text style={styles.contactText} numberOfLines={1}>
+                      On-site: {item.contactName || 'Contact'}
+                      {item.contactPhone ? ` · ${item.contactPhone}` : ''}
+                    </Text>
+                    {item.contactPhone ? (
+                      <Pressable
+                        onPress={() => Linking.openURL(`tel:${item.contactPhone}`)}
+                        style={styles.contactCallBtn}
+                        hitSlop={8}
+                      >
+                        <Ionicons name="call" size={13} color={colors.primary} />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {/* This job was auto-reassigned after a previous worker
+                    accepted and never showed — the customer may already be
+                    frustrated, and this worker should know before heading out. */}
+                {item.reassignCount ? (
+                  <View style={styles.reassignBanner}>
+                    <Ionicons name="alert-circle-outline" size={13} color="#92400E" />
+                    <Text style={styles.reassignBannerText}>
+                      Reassigned after previous worker didn't show ({item.reassignCount}x)
                     </Text>
                   </View>
                 ) : null}
@@ -318,6 +402,17 @@ const styles = StyleSheet.create({
   inquiryBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   inquiryBadge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   inquiryBadgeText: { fontSize: 10, fontWeight: fontWeight.bold, color: colors.white },
+  chatUnreadDot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    marginLeft: spacing.xs,
+  },
+  chatUnreadDotText: { fontSize: 10, fontWeight: fontWeight.bold, color: colors.white },
   tabRow: { flexDirection: 'row', paddingHorizontal: spacing.xxl, marginTop: spacing.lg, gap: spacing.sm },
   tabBtn: { flex: 1, paddingVertical: spacing.sm, borderRadius: radius.pill, alignItems: 'center', backgroundColor: colors.surfaceMuted },
   tabBtnActive: { backgroundColor: colors.primary },
@@ -493,6 +588,65 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: fontWeight.bold,
     color: colors.primaryDark,
+  },
+  issueCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginTop: spacing.xs,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    gap: 2,
+  },
+  issueHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  issueLabel: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  issueDetailText: {
+    fontSize: fontSize.xs,
+    color: colors.textPrimary,
+    lineHeight: 17,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  contactText: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    flex: 1,
+  },
+  contactCallBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reassignBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF3C7',
+    borderRadius: radius.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginTop: 2,
+  },
+  reassignBannerText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: '#92400E',
+    flex: 1,
   },
   overdueBanner: {
     flexDirection: 'row',

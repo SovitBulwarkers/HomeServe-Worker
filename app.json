@@ -21,7 +21,9 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "HomeServe Pro uses your location to show nearby jobs and share live tracking with customers while a job is in progress."
+          "locationAlwaysAndWhenInUsePermission": "HomeServe Pro uses your location to show nearby jobs and share live tracking with customers while a job is in progress.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       [
@@ -40,9 +42,12 @@
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "UIBackgroundModes": [
-          "remote-notification"
+          "remote-notification",
+          "location"
         ],
-        "NSCameraUsageDescription": "HomeServe Pro needs camera access so you can take before/after job-proof photos."
+        "NSCameraUsageDescription": "HomeServe Pro needs camera access so you can take before/after job-proof photos.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "HomeServe Pro uses your location to show nearby jobs and share live tracking with customers while a job is in progress.",
+        "NSLocationWhenInUseUsageDescription": "HomeServe Pro uses your location to show nearby jobs and share live tracking with customers while a job is in progress."
       }
     },
     "android": {
@@ -60,6 +65,9 @@
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",

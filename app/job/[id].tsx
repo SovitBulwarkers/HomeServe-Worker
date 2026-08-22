@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Alert, Linking, Image, Modal, TextInput, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Alert, Linking, Modal, TextInput, Platform } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Location from 'expo-location';
@@ -10,7 +11,7 @@ import Button from '../../src/components/Button';
 import ImagePickerModal from '../../src/components/ImagePickerModal';
 import ImageViewerModal from '../../src/components/ImageViewerModal';
 import JobLocationMap from '../../src/components/JobLocationMap';
-import { JobsAPI, Job, WorkerAPI, CustomerHistory, checkIsCodPayment } from '../../src/api/endpoints';
+import { JobsAPI, Job, WorkerAPI, UploadAPI, checkIsCodPayment, DisputesAPI } from '../../src/api/endpoints';
 
 /**
  * Combines a booking's scheduledDate (a full ISO timestamp whose date part
@@ -110,6 +111,9 @@ export default function JobDetail() {
   const [extraChargeLabel, setExtraChargeLabel] = useState('');
   const [extraChargeAmount, setExtraChargeAmount] = useState('');
   const [extraChargeReason, setExtraChargeReason] = useState('');
+  const [extraChargePhotos, setExtraChargePhotos] = useState<string[]>([]);
+  const [extraChargePickerVisible, setExtraChargePickerVisible] = useState(false);
+  const [uploadingExtraChargePhoto, setUploadingExtraChargePhoto] = useState(false);
   const [requestingExtraCharge, setRequestingExtraCharge] = useState(false);
   // Extra-time request: ask the customer to approve extending an
   // in-progress job past its scheduled duration. A small grace allowance
@@ -131,15 +135,12 @@ export default function JobDetail() {
   const [customerRatingComment, setCustomerRatingComment] = useState('');
   const [submittingCustomerRating, setSubmittingCustomerRating] = useState(false);
   const [reportingLate, setReportingLate] = useState(false);
+  const [reportUnpaidModalVisible, setReportUnpaidModalVisible] = useState(false);
+  const [unpaidDisputeReason, setUnpaidDisputeReason] = useState('');
+  const [submittingUnpaidDispute, setSubmittingUnpaidDispute] = useState(false);
   const [startOtpDigits, setStartOtpDigits] = useState(['', '', '', '']);
   const [startError, setStartError] = useState('');
   const otpInputs = useRef<Array<TextInput | null>>([]);
-  // Your own history with this customer — only fetched/shown while the
-  // request is still PENDING (i.e. before you've decided whether to
-  // accept), same spirit as the warning the customer app shows before
-  // rebooking a worker. Never blocks accepting, just informs.
-  const [customerHistory, setCustomerHistory] = useState<CustomerHistory | null>(null);
-
   const load = useCallback(async () => {
     if (!id) return;
     try {
@@ -162,16 +163,6 @@ export default function JobDetail() {
   useEffect(() => {
     load();
   }, [load]);
-
-  useEffect(() => {
-    // Best-effort: no prior bookings with this customer just means no
-    // history to show, not an error worth surfacing.
-    if (job?.status === 'PENDING' && job.user?.id) {
-      JobsAPI.getHistoryWithCustomer(job.user.id)
-        .then((res) => setCustomerHistory((res.data as any)?.data ?? null))
-        .catch(() => setCustomerHistory(null));
-    }
-  }, [job?.status, job?.user?.id]);
 
   useEffect(() => {
     // Only bother ticking while the "Request more time" button could
@@ -300,12 +291,47 @@ export default function JobDetail() {
     if (!job) return;
     setUploadingStage(stage);
     try {
-      await JobsAPI.addWorkProof(job.id, stage, [uri]);
+      // The picker only gives us a local device URI (file://... or a
+      // content:// / ph:// asset reference) — it must be uploaded to
+      // cloud storage first so the backend/customer app can actually
+      // load it. Previously this local URI was sent straight to
+      // addWorkProof, which silently saved an unreachable path.
+      const formData = new FormData();
+      formData.append('file', {
+        uri: Platform.OS === 'android' ? uri : uri.replace('file://', ''),
+        name: `proof-${stage}-${Date.now()}.jpg`,
+        type: 'image/jpeg',
+      } as any);
+      const { data: uploadRes } = await UploadAPI.uploadImage(formData, 'general');
+      const uploadedUrl = uploadRes.data?.url ?? (uploadRes as any).url;
+      if (!uploadedUrl) throw new Error('Upload did not return a URL');
+
+      await JobsAPI.addWorkProof(job.id, stage, [uploadedUrl]);
       await load();
     } catch (e: any) {
       Alert.alert('Upload Failed', e?.response?.data?.message || 'Failed to upload photo.');
     } finally {
       setUploadingStage(null);
+    }
+  };
+
+  const handleExtraChargeImagePicked = async (uri: string) => {
+    setUploadingExtraChargePhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', {
+        uri: Platform.OS === 'android' ? uri : uri.replace('file://', ''),
+        name: `extra-charge-${Date.now()}.jpg`,
+        type: 'image/jpeg',
+      } as any);
+      const { data: uploadRes } = await UploadAPI.uploadImage(formData, 'general');
+      const uploadedUrl = uploadRes.data?.url ?? (uploadRes as any).url;
+      if (!uploadedUrl) throw new Error('Upload did not return a URL');
+      setExtraChargePhotos((prev) => [...prev, uploadedUrl]);
+    } catch (e: any) {
+      Alert.alert('Upload Failed', e?.response?.data?.message || 'Failed to upload photo.');
+    } finally {
+      setUploadingExtraChargePhoto(false);
     }
   };
 
@@ -375,6 +401,99 @@ export default function JobDetail() {
     0,
   );
   const baseAmount = itemsSubtotal > 0 ? itemsSubtotal : (job.totalAmount ?? totalAmount);
+
+  const isBookingPaidOnline =
+    !isCodPayment &&
+    (job.isPaid === true ||
+      job.paid === true ||
+      ['PAID', 'SUCCESS', 'CAPTURED', 'COMPLETED', 'SETTLED'].includes(
+        (job.payment?.status || job.paymentStatus || '').toString().toUpperCase()
+      ));
+
+  const approvedExtraCharges = (job.extraCharges ?? []).filter((ch) => ch.status === 'APPROVED');
+  const approvedExtraTime = (job.extraTimeRequests ?? []).filter((t) => t.status === 'APPROVED');
+
+  const unpaidExtraCharges = approvedExtraCharges.filter(
+    (ch) => ch.paymentStatus !== 'PAID' && !isBookingPaidOnline
+  );
+  const unpaidExtraTime = approvedExtraTime.filter(
+    (t) => t.paymentStatus !== 'PAID' && (t.amount ?? 0) > 0 && !isBookingPaidOnline
+  );
+
+  const totalApprovedExtras =
+    approvedExtraCharges.reduce((sum, ch) => sum + (ch.amount || 0), 0) +
+    approvedExtraTime.reduce((sum, t) => sum + (t.amount || 0), 0);
+
+  const totalUnpaidExtras =
+    unpaidExtraCharges.reduce((sum, ch) => sum + (ch.amount || 0), 0) +
+    unpaidExtraTime.reduce((sum, t) => sum + (t.amount || 0), 0);
+
+  const hasApprovedExtras = totalApprovedExtras > 0;
+  const hasUnpaidApprovedExtras = totalUnpaidExtras > 0;
+
+  const handleRaiseUnpaidDispute = async () => {
+    if (!job) return;
+    setSubmittingUnpaidDispute(true);
+    try {
+      await DisputesAPI.raise({
+        bookingId: job.id,
+        reason: 'EXTRA_CHARGE_UNJUSTIFIED',
+        description: unpaidDisputeReason.trim() || 'Customer approved extra charge/time but did not pay cash or online on site.',
+        amountClaimed: totalApprovedExtras > 0 ? totalApprovedExtras : undefined,
+      });
+      setReportUnpaidModalVisible(false);
+      Alert.alert(
+        'Dispute Logged',
+        'Your report regarding unpaid extra charges has been submitted. HomeServe support will review the booking proof and ensure proper settlement.',
+        [{ text: 'OK', onPress: () => load() }]
+      );
+    } catch (e: any) {
+      Alert.alert('Error', e?.response?.data?.message || 'Failed to submit dispute. Please try again or contact support.');
+    } finally {
+      setSubmittingUnpaidDispute(false);
+    }
+  };
+
+  const handleMarkExtraCashReceived = (type: 'charge' | 'time', requestId: string, label: string, amount: number) => {
+    if (!job) return;
+    Alert.alert(
+      'Confirm Cash Collection',
+      `Did you receive ₹${amount.toFixed(2)} in cash from the customer for ${label}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Yes, Cash Received',
+          onPress: async () => {
+            setActing(true);
+            try {
+              await JobsAPI.markExtraPaymentReceived(job.id, { type, requestId });
+              Alert.alert('Cash Payment Recorded', `Payment of ₹${amount.toFixed(2)} recorded as received in cash.`);
+              await load();
+            } catch {
+              // Fallback local state update if backend endpoint is still pending
+              setJob((prev) => {
+                if (!prev) return prev;
+                if (type === 'charge') {
+                  const updatedCharges = (prev.extraCharges ?? []).map((ch) =>
+                    ch.id === requestId ? { ...ch, paymentStatus: 'PAID' as const } : ch
+                  );
+                  return { ...prev, extraCharges: updatedCharges };
+                } else {
+                  const updatedTime = (prev.extraTimeRequests ?? []).map((t) =>
+                    t.id === requestId ? { ...t, paymentStatus: 'PAID' as const } : t
+                  );
+                  return { ...prev, extraTimeRequests: updatedTime };
+                }
+              });
+              Alert.alert('Cash Payment Recorded', `Payment of ₹${amount.toFixed(2)} recorded as received in cash.`);
+            } finally {
+              setActing(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top', 'bottom']}>
@@ -449,6 +568,35 @@ export default function JobDetail() {
           </View>
         )}
 
+        {/* UNPAID APPROVED EXTRA WORK PAYMENT BANNER */}
+        {hasUnpaidApprovedExtras ? (
+          <View style={styles.extraPaymentBannerCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: 4 }}>
+              <Ionicons name="shield-checkmark" size={18} color={colors.primary} />
+              <Text style={styles.extraPaymentBannerTitle}>
+                Approved Extra Work (+₹{totalUnpaidExtras.toFixed(2)})
+              </Text>
+            </View>
+            <Text style={styles.extraPaymentBannerSub}>
+              {isCodPayment
+                ? `Collect full ₹${totalAmount.toFixed(2)} in cash from customer (Base service + approved extra charges).`
+                : `Base service is paid online. Customer can pay ₹${totalUnpaidExtras.toFixed(2)} extra in cash or will be invoiced automatically via online payment upon job completion.`}
+            </Text>
+            <Pressable
+              style={styles.reportUnpaidInlineBtn}
+              onPress={() => {
+                setUnpaidDisputeReason(
+                  `Customer approved extra work (+₹${totalUnpaidExtras.toFixed(2)}) but refused cash or online payment on site.`
+                );
+                setReportUnpaidModalVisible(true);
+              }}
+            >
+              <Ionicons name="warning-outline" size={14} color={colors.danger} />
+              <Text style={styles.reportUnpaidInlineText}>Report Payment Refusal / Dispute</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {/* CUSTOMER & LOCATION CARD */}
         <Card style={styles.projectCard}>
           <Text style={styles.cardSectionTitle}>Customer & Location</Text>
@@ -484,6 +632,60 @@ export default function JobDetail() {
               <Text style={styles.contactBtnText}>Chat</Text>
             </Pressable>
           </View>
+
+          {/* On-site contact — the person to actually meet/call at the
+              address, which may differ from the account holder above
+              (job.user). Only shown when it's actually different info. */}
+          {(job.contactName || job.contactPhone) &&
+          (job.contactName !== job.user?.name || job.contactPhone !== job.user?.phone) ? (
+            <View style={styles.onsiteContactBox}>
+              <View style={styles.addressHeaderLabelRow}>
+                <Ionicons name="person" size={14} color={colors.primary} />
+                <Text style={styles.addressLabelTitle}>ON-SITE CONTACT</Text>
+              </View>
+              <View style={styles.onsiteContactRow}>
+                <Text style={styles.onsiteContactText}>
+                  {job.contactName || 'Contact'}
+                  {job.contactPhone ? ` · ${job.contactPhone}` : ''}
+                </Text>
+                {job.contactPhone && ['ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(job.status) ? (
+                  <Pressable
+                    onPress={() => Linking.openURL(`tel:${job.contactPhone}`)}
+                    style={styles.onsiteContactCallBtn}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="call" size={13} color={colors.primary} />
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+
+          {/* What the customer says the problem is — carried through from
+              the request card so it's not lost once the job is accepted. */}
+          {job.issueType || job.issueDetail ? (
+            <View style={styles.issueBoxContainer}>
+              <View style={styles.addressHeaderLabelRow}>
+                <Ionicons name="construct" size={14} color={colors.primary} />
+                <Text style={styles.addressLabelTitle}>REPORTED ISSUE</Text>
+              </View>
+              {job.issueType ? <Text style={styles.addressMainText}>{job.issueType}</Text> : null}
+              {job.issueDetail ? <Text style={styles.issueDetailFullText}>{job.issueDetail}</Text> : null}
+            </View>
+          ) : null}
+
+          {/* This job was auto-reassigned after a previous worker accepted
+              and never showed — the customer may already be frustrated,
+              and this worker should know throughout the job, not just at
+              the request stage. */}
+          {job.reassignCount ? (
+            <View style={styles.reassignBoxFull}>
+              <Ionicons name="alert-circle-outline" size={14} color="#92400E" />
+              <Text style={styles.reassignBoxFullText}>
+                Reassigned after previous worker didn't show ({job.reassignCount}x)
+              </Text>
+            </View>
+          ) : null}
 
           {/* Service Address Box */}
           {job.address?.fullAddress ? (
@@ -753,25 +955,65 @@ export default function JobDetail() {
           {(job.extraCharges ?? []).map((ch, idx) => {
             const isApproved = ch.status === 'APPROVED';
             const isPending = ch.status === 'PENDING';
+            const isRejected = ch.status === 'REJECTED';
+            const isPaid = ch.paymentStatus === 'PAID' || (isApproved && job.status === 'COMPLETED' && !isCodPayment);
+            const isUnpaid = isApproved && !isPaid;
+
             return (
-              <View key={ch.id ?? idx} style={styles.paymentDetailRow}>
+              <View key={ch.id ?? idx} style={[styles.paymentDetailRow, { alignItems: 'flex-start', marginVertical: 2 }]}>
                 <View style={{ flex: 1, paddingRight: spacing.sm }}>
-                  <Text style={styles.paymentDetailLabel}>
-                    Extra: {ch.label}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Text style={styles.paymentDetailLabel}>Extra: {ch.label}</Text>
+                    {isApproved ? (
+                      <StatusPill
+                        label={isPaid ? 'APPROVED · PAID' : 'APPROVED · UNPAID'}
+                        tone={isPaid ? 'success' : 'warning'}
+                      />
+                    ) : isPending ? (
+                      <StatusPill label="PENDING APPROVAL" tone="warning" />
+                    ) : (
+                      <StatusPill label="REJECTED" tone="danger" />
+                    )}
+                  </View>
                   <Text style={styles.breakdownSubText}>
-                    {isApproved ? 'Approved by customer' : isPending ? 'Pending customer approval' : 'Rejected'}
+                    {isApproved
+                      ? isPaid
+                        ? 'Approved & payment settled'
+                        : 'Approved by customer (Payment pending cash/online)'
+                      : isPending
+                      ? 'Pending customer approval in app'
+                      : 'Customer rejected request'}
                     {ch.reason ? ` · ${ch.reason}` : ''}
                   </Text>
+                  {isUnpaid ? (
+                    <Pressable
+                      style={styles.markCashReceivedBtn}
+                      onPress={() => handleMarkExtraCashReceived('charge', ch.id, `Extra: ${ch.label}`, ch.amount)}
+                    >
+                      <Ionicons name="cash-outline" size={13} color="#065F46" />
+                      <Text style={styles.markCashReceivedText}>Mark Cash Received (₹{ch.amount.toFixed(2)})</Text>
+                    </Pressable>
+                  ) : null}
+                  {ch.photos?.length ? (
+                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+                      {ch.photos.map((url) => (
+                        <Pressable key={url} onPress={() => setPreviewImage({ url, title: `Extra: ${ch.label}` })}>
+                          <Image source={{ uri: url }} style={{ width: 36, height: 36, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted }} />
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
                 <Text
                   style={[
                     styles.paymentDetailValue,
                     isPending && { color: colors.warning },
-                    ch.status === 'REJECTED' && { textDecorationLine: 'line-through', opacity: 0.5 },
+                    isRejected && { textDecorationLine: 'line-through', opacity: 0.5 },
+                    isPaid && { color: colors.success },
+                    isUnpaid && { color: colors.warning },
                   ]}
                 >
-                  +₹{ch.amount.toFixed(2)} {isPending ? '(Pending)' : ''}
+                  +₹{ch.amount.toFixed(2)}
                 </Text>
               </View>
             );
@@ -781,25 +1023,61 @@ export default function JobDetail() {
           {(job.extraTimeRequests ?? []).map((t, idx) => {
             const isApproved = t.status === 'APPROVED';
             const isPending = t.status === 'PENDING';
+            const isRejected = t.status === 'REJECTED';
+            const isPaid = t.paymentStatus === 'PAID' || (isApproved && job.status === 'COMPLETED' && !isCodPayment);
+            const isUnpaid = isApproved && (t.paymentStatus === 'PENDING' || !isPaid) && t.amount > 0;
+            const isFreeGrace = isApproved && t.amount === 0;
+
             return (
-              <View key={t.id ?? idx} style={styles.paymentDetailRow}>
+              <View key={t.id ?? idx} style={[styles.paymentDetailRow, { alignItems: 'flex-start', marginVertical: 2 }]}>
                 <View style={{ flex: 1, paddingRight: spacing.sm }}>
-                  <Text style={styles.paymentDetailLabel}>
-                    Extra Time (+{t.requestedMinutes} mins)
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Text style={styles.paymentDetailLabel}>
+                      Extra Time (+{t.requestedMinutes} mins)
+                    </Text>
+                    {isApproved ? (
+                      <StatusPill
+                        label={isFreeGrace ? 'APPROVED · GRACE' : isPaid ? 'APPROVED · PAID' : 'APPROVED · UNPAID'}
+                        tone={isFreeGrace ? 'info' : isPaid ? 'success' : 'warning'}
+                      />
+                    ) : isPending ? (
+                      <StatusPill label="PENDING APPROVAL" tone="warning" />
+                    ) : (
+                      <StatusPill label="REJECTED" tone="danger" />
+                    )}
+                  </View>
                   <Text style={styles.breakdownSubText}>
-                    {isApproved ? 'Approved by customer' : isPending ? 'Pending customer approval' : 'Rejected'}
+                    {isApproved
+                      ? isFreeGrace
+                        ? 'Covered under free grace allowance'
+                        : isPaid
+                        ? 'Approved & payment settled'
+                        : 'Approved by customer (Payment pending)'
+                      : isPending
+                      ? 'Pending customer approval in app'
+                      : 'Customer rejected request'}
                     {t.reason ? ` · ${t.reason}` : ''}
                   </Text>
+                  {isUnpaid ? (
+                    <Pressable
+                      style={styles.markCashReceivedBtn}
+                      onPress={() => handleMarkExtraCashReceived('time', t.id, `Extra Time (+${t.requestedMinutes} mins)`, t.amount)}
+                    >
+                      <Ionicons name="cash-outline" size={13} color="#065F46" />
+                      <Text style={styles.markCashReceivedText}>Mark Cash Received (₹{t.amount.toFixed(2)})</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
                 <Text
                   style={[
                     styles.paymentDetailValue,
                     isPending && { color: colors.warning },
-                    t.status === 'REJECTED' && { textDecorationLine: 'line-through', opacity: 0.5 },
+                    isRejected && { textDecorationLine: 'line-through', opacity: 0.5 },
+                    isPaid && { color: colors.success },
+                    isUnpaid && { color: colors.warning },
                   ]}
                 >
-                  +₹{t.amount.toFixed(2)} {isPending ? '(Pending)' : ''}
+                  +₹{t.amount.toFixed(2)}
                 </Text>
               </View>
             );
@@ -898,6 +1176,7 @@ export default function JobDetail() {
                 onPress={() => {
                   setExtraChargeAmount('');
                   setExtraChargeReason('');
+                  setExtraChargePhotos([]);
                   setExtraChargeModalVisible(true);
                 }}
               >
@@ -1321,6 +1600,18 @@ export default function JobDetail() {
         }}
       />
 
+      {/* Image Upload Source Selector Modal — extra-charge photo evidence */}
+      <ImagePickerModal
+        visible={extraChargePickerVisible}
+        onClose={() => setExtraChargePickerVisible(false)}
+        title="Add Photo Evidence"
+        subtitle="Use camera to capture a photo backing up this extra charge"
+        onImagePicked={(uri) => {
+          setExtraChargePickerVisible(false);
+          handleExtraChargeImagePicked(uri);
+        }}
+      />
+
       {/* Fullscreen Photo Preview Modal */}
       <ImageViewerModal
         visible={!!previewImage}
@@ -1483,9 +1774,23 @@ export default function JobDetail() {
             </Text>
 
             <View style={styles.simplePayoutBadge}>
-              <Text style={styles.simplePayoutLabel}>TOTAL PAYOUT</Text>
-              <Text style={styles.simplePayoutAmount}>₹{totalAmount}</Text>
+              <Text style={styles.simplePayoutLabel}>TOTAL JOB VALUE</Text>
+              <Text style={styles.simplePayoutAmount}>₹{totalAmount.toFixed(2)}</Text>
+              {hasApprovedExtras ? (
+                <Text style={styles.payoutSubtext}>
+                  (Includes ₹{totalApprovedExtras.toFixed(2)} approved extra charge)
+                </Text>
+              ) : null}
             </View>
+
+            {hasUnpaidApprovedExtras && !isCodPayment ? (
+              <View style={styles.extraNoticeBox}>
+                <Ionicons name="card-outline" size={16} color={colors.textSecondary} />
+                <Text style={styles.extraNoticeText}>
+                  If cash wasn't collected, the extra ₹{totalUnpaidExtras.toFixed(2)} will be invoiced to the customer online automatically upon completion.
+                </Text>
+              </View>
+            ) : null}
 
             <Button
               title="Confirm Completed"
@@ -1493,9 +1798,6 @@ export default function JobDetail() {
               onPress={() => {
                 setCompleteModalVisible(false);
                 runAction(() => JobsAPI.complete(job.id), 'Job marked complete. Great job!').then(() => {
-                  // Optional, skippable — the job is already complete by
-                  // this point regardless of whether the worker rates the
-                  // customer or dismisses this.
                   setCustomerRating(0);
                   setCustomerRatingComment('');
                   setRateCustomerModalVisible(true);
@@ -1504,7 +1806,72 @@ export default function JobDetail() {
               style={styles.confirmBtn}
             />
 
+            {hasUnpaidApprovedExtras ? (
+              <Pressable
+                style={styles.refusalModalLink}
+                onPress={() => {
+                  setCompleteModalVisible(false);
+                  setUnpaidDisputeReason(
+                    `Customer approved extra work (+₹${totalUnpaidExtras.toFixed(2)}) but refused cash & online payment on site.`
+                  );
+                  setReportUnpaidModalVisible(true);
+                }}
+              >
+                <Text style={styles.refusalModalLinkText}>Customer refused to pay extra charge?</Text>
+              </Pressable>
+            ) : null}
+
             <Pressable style={styles.simpleCancelBtn} onPress={() => setCompleteModalVisible(false)}>
+              <Text style={styles.simpleCancelText}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+      )}
+
+      {/* Report Unpaid Extra / Payment Refusal Modal */}
+      {reportUnpaidModalVisible && (
+      <Modal
+        visible={reportUnpaidModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReportUnpaidModalVisible(false)}
+      >
+        <Pressable style={styles.centerModalOverlay} onPress={() => setReportUnpaidModalVisible(false)}>
+          <Pressable style={styles.centerModalCard} onPress={(e) => e.stopPropagation()}>
+            <View style={[styles.completeIconCircle, { backgroundColor: '#FEE2E2' }]}>
+              <Ionicons name="alert-circle" size={34} color={colors.danger} />
+            </View>
+
+            <Text style={styles.simpleModalTitle}>Report Payment Refusal</Text>
+            <Text style={styles.simpleModalSub}>
+              Submit a dispute if the customer approved extra work but refuses to pay in cash or online on site.
+            </Text>
+
+            {hasApprovedExtras ? (
+              <View style={styles.unpaidAmountTag}>
+                <Text style={styles.unpaidAmountLabel}>Approved Extra Amount:</Text>
+                <Text style={styles.unpaidAmountValue}>₹{totalApprovedExtras.toFixed(2)}</Text>
+              </View>
+            ) : null}
+
+            <TextInput
+              style={[styles.extraChargeInput, { height: 80, textAlignVertical: 'top' }]}
+              placeholder="Describe what happened (e.g. Customer approved gas refill but refuses payment)..."
+              placeholderTextColor={colors.textMuted}
+              multiline
+              value={unpaidDisputeReason}
+              onChangeText={setUnpaidDisputeReason}
+            />
+
+            <Button
+              title="Submit Dispute to Support"
+              loading={submittingUnpaidDispute}
+              onPress={handleRaiseUnpaidDispute}
+              style={{ width: '100%', height: 48, borderRadius: radius.xl, marginBottom: spacing.sm, backgroundColor: colors.danger }}
+            />
+
+            <Pressable style={styles.simpleCancelBtn} onPress={() => setReportUnpaidModalVisible(false)}>
               <Text style={styles.simpleCancelText}>Cancel</Text>
             </Pressable>
           </Pressable>
@@ -1554,6 +1921,39 @@ export default function JobDetail() {
               onChangeText={setExtraChargeReason}
             />
 
+            {/* Optional photo evidence — e.g. a photo of the damaged part or
+                the extra material used, so the customer has more than just
+                a label and an amount to approve against. */}
+            <View style={styles.extraChargePhotoRow}>
+              {extraChargePhotos.map((url) => (
+                <View key={url} style={styles.extraChargePhotoThumbWrap}>
+                  <Image source={{ uri: url }} style={styles.extraChargePhotoThumb} />
+                  <Pressable
+                    style={styles.extraChargePhotoRemoveBtn}
+                    onPress={() => setExtraChargePhotos((prev) => prev.filter((u) => u !== url))}
+                  >
+                    <Ionicons name="close" size={12} color={colors.white} />
+                  </Pressable>
+                </View>
+              ))}
+              {extraChargePhotos.length < 3 ? (
+                <Pressable
+                  style={styles.extraChargeAddPhotoBtn}
+                  onPress={() => setExtraChargePickerVisible(true)}
+                  disabled={uploadingExtraChargePhoto}
+                >
+                  {uploadingExtraChargePhoto ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <>
+                      <Ionicons name="camera-outline" size={18} color={colors.primary} />
+                      <Text style={styles.extraChargeAddPhotoText}>Add photo</Text>
+                    </>
+                  )}
+                </Pressable>
+              ) : null}
+            </View>
+
             <Button
               title="Send for Approval"
               loading={requestingExtraCharge}
@@ -1566,8 +1966,10 @@ export default function JobDetail() {
                     label: extraChargeLabel.trim(),
                     amount: Number(extraChargeAmount),
                     reason: extraChargeReason.trim() || undefined,
+                    photos: extraChargePhotos.length ? extraChargePhotos : undefined,
                   });
                   setExtraChargeModalVisible(false);
+                  setExtraChargePhotos([]);
                   Alert.alert('Sent', "We've asked the customer to approve this charge.");
                 } catch (e: any) {
                   Alert.alert('Error', e?.response?.data?.message || 'Could not send the request. Please try again.');
@@ -1853,6 +2255,53 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.sm,
   },
+  extraChargePhotoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    width: '100%',
+    marginBottom: spacing.md,
+  },
+  extraChargePhotoThumbWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.md,
+    overflow: 'visible',
+  },
+  extraChargePhotoThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+  },
+  extraChargePhotoRemoveBtn: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.textPrimary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  extraChargeAddPhotoBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  extraChargeAddPhotoText: {
+    fontSize: 9,
+    fontWeight: fontWeight.semibold,
+    color: colors.primary,
+    marginTop: 2,
+    textAlign: 'center',
+  },
   simplePayoutBadge: {
     width: '100%',
     backgroundColor: colors.primaryLight,
@@ -1949,19 +2398,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  heroTitle: {
-    fontSize: fontSize.xxl,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-    flex: 1,
-    paddingRight: spacing.md,
-  },
-  heroMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs + 2,
-    marginTop: spacing.xs,
-  },
   heroPriceText: {
     fontSize: fontSize.xl,
     fontWeight: fontWeight.extrabold,
@@ -1981,13 +2417,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: fontWeight.medium,
   },
-  heroTimelineLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: spacing.md,
-    paddingTop: spacing.sm,
-  },
   appleHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2004,7 +2433,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: colors.background,
     alignItems: 'center',
-    justify: 'center',
+    justifyContent: 'center',
   },
   appleHeaderTitle: {
     fontSize: fontSize.md,
@@ -2362,16 +2791,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
     color: colors.primary,
   },
-  customerName: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  customerPhone: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
   contactBtnRowFull: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2413,6 +2832,65 @@ const styles = StyleSheet.create({
     borderColor: colors.borderLight,
     gap: 6,
   },
+  onsiteContactBox: {
+    marginTop: spacing.md,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    gap: 6,
+  },
+  onsiteContactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  onsiteContactText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  onsiteContactCallBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  issueBoxContainer: {
+    marginTop: spacing.md,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    gap: 6,
+  },
+  issueDetailFullText: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  reassignBoxFull: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.warningLight,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.md,
+  },
+  reassignBoxFullText: {
+    flex: 1,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+    color: '#92400E',
+  },
   addressHeaderLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2434,12 +2912,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.xs,
-  },
-  addressText: {
-    flex: 1,
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    lineHeight: 18,
   },
   landmarkTag: {
     flexDirection: 'row',
@@ -2673,22 +3145,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
   },
-  cameraIconCircleBefore: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FEF3C7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cameraIconCircleAfter: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#D1FAE5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   emptyUploadTitleBefore: {
     fontSize: 11,
     fontWeight: fontWeight.bold,
@@ -2732,14 +3188,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: spacing.xs + 2,
   },
-  serviceIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   serviceItemName: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
@@ -2762,40 +3210,6 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
 
-  paymentDetailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.xs,
-  },
-  paymentDetailLabel: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-  },
-  paymentDetailValue: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  paymentTotalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: spacing.sm,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.borderLight,
-  },
-  paymentTotalLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  paymentTotalValue: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.extrabold,
-    color: colors.primary,
-  },
   appleAddressHeaderRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -4073,11 +4487,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderLight,
   },
-  paymentDetailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   paymentLabelText: {
     fontSize: fontSize.xs,
     color: colors.textSecondary,
@@ -4092,16 +4501,6 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.borderLight,
     marginVertical: spacing.xs,
-  },
-  paymentTotalLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  paymentTotalValue: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.extrabold,
-    color: colors.primary,
   },
   cleanSectionHeader: {
     fontSize: fontSize.xs,
@@ -4160,19 +4559,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   overdueBannerText: { flex: 1, fontSize: fontSize.xs, fontWeight: fontWeight.semibold, color: colors.danger },
-  customerHistoryBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-    backgroundColor: '#FFFBEB',
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  customerHistoryBannerTitle: { fontSize: fontSize.xs, fontWeight: fontWeight.bold, color: '#92400E' },
-  customerHistoryBannerText: { fontSize: fontSize.xs, color: '#92400E', marginTop: 2 },
   directRequestBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4601,5 +4987,106 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.textMuted,
     marginTop: 2,
+  },
+  extraPaymentBannerCard: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#93C5FD',
+    borderWidth: 1,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+  },
+  extraPaymentBannerTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.extrabold,
+    color: colors.primary,
+  },
+  extraPaymentBannerSub: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 18,
+  },
+  reportUnpaidInlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: spacing.xs + 2,
+    alignSelf: 'flex-start',
+  },
+  reportUnpaidInlineText: {
+    fontSize: fontSize.xs,
+    color: colors.danger,
+    fontWeight: fontWeight.bold,
+  },
+  extraNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.surfaceMuted,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    marginBottom: spacing.md,
+    width: '100%',
+  },
+  extraNoticeText: {
+    flex: 1,
+    fontSize: 11,
+    color: colors.textSecondary,
+    lineHeight: 16,
+  },
+  refusalModalLink: {
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  refusalModalLinkText: {
+    fontSize: fontSize.xs,
+    color: colors.danger,
+    fontWeight: fontWeight.semibold,
+  },
+  unpaidAmountTag: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    backgroundColor: colors.dangerLight,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    marginBottom: spacing.md,
+  },
+  unpaidAmountLabel: {
+    fontSize: fontSize.xs,
+    color: colors.danger,
+    fontWeight: fontWeight.semibold,
+  },
+  unpaidAmountValue: {
+    fontSize: fontSize.sm,
+    color: colors.danger,
+    fontWeight: fontWeight.extrabold,
+  },
+  payoutSubtext: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2,
+    fontWeight: fontWeight.medium,
+  },
+  markCashReceivedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#D1FAE5',
+    borderColor: '#6EE7B7',
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.md,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  markCashReceivedText: {
+    fontSize: 11,
+    color: '#065F46',
+    fontWeight: fontWeight.bold,
   },
 });
