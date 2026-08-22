@@ -11,6 +11,36 @@ import SettleDebtModal from '../../src/components/SettleDebtModal';
 
 type Period = 'today' | 'week' | 'month';
 
+function formatTxDescription(rawDesc: string) {
+  if (!rawDesc) return { title: '', holdDate: null };
+  const heldUntilMatch = rawDesc.match(/\s*\(held until ([^)]+)\)/i);
+  if (heldUntilMatch) {
+    const cleanDesc = rawDesc.replace(heldUntilMatch[0], '').trim();
+    const dateObj = new Date(heldUntilMatch[1]);
+    let formattedHoldDate = '';
+    if (!isNaN(dateObj.getTime())) {
+      formattedHoldDate = dateObj.toLocaleString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    } else {
+      formattedHoldDate = heldUntilMatch[1];
+    }
+    return {
+      title: cleanDesc,
+      holdDate: formattedHoldDate,
+    };
+  }
+  return {
+    title: rawDesc,
+    holdDate: null,
+  };
+}
+
 export default function Earnings() {
   const router = useRouter();
   const [wallet, setWallet] = useState<WorkerWallet | null>(null);
@@ -22,12 +52,6 @@ export default function Earnings() {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawing, setWithdrawing] = useState(false);
   const [settleOpen, setSettleOpen] = useState(false);
-  // Sum of withdrawals still PENDING/PROCESSING — money already earmarked
-  // for a payout in flight. The backend excludes this from what a new
-  // withdrawal request is allowed to draw against (see
-  // WalletService.withdrawMoney's `reserved` aggregate), so the client
-  // has to mirror that here too or "Confirm" will look valid locally and
-  // then get rejected server-side with a confusing error.
   const [reserved, setReserved] = useState(0);
 
   const load = useCallback(async (p: Period) => {
@@ -55,8 +79,6 @@ export default function Earnings() {
     }
   }, []);
 
-  // What the worker can actually withdraw right now: wallet balance minus
-  // whatever's already tied up in an in-flight withdrawal. Never negative.
   const available = wallet ? Math.max(0, Number(wallet.balance) - reserved) : 0;
 
   useFocusEffect(
@@ -177,24 +199,33 @@ export default function Earnings() {
         keyExtractor={(t) => t.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={!loading ? <EmptyState icon="receipt-outline" title="No transactions yet" /> : null}
-        renderItem={({ item }) => (
-          <Card style={styles.txCard}>
-            <View style={[styles.txIcon, { backgroundColor: item.type === 'CREDIT' ? colors.successLight : colors.dangerLight }]}>
-              <Ionicons
-                name={item.type === 'CREDIT' ? 'arrow-down-outline' : 'arrow-up-outline'}
-                size={18}
-                color={item.type === 'CREDIT' ? colors.success : colors.danger}
-              />
-            </View>
-            <View style={{ flex: 1, marginLeft: spacing.md }}>
-              <Text style={styles.txDesc}>{item.description}</Text>
-              <Text style={styles.txDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
-            </View>
-            <Text style={[styles.txAmount, { color: item.type === 'CREDIT' ? colors.success : colors.danger }]}>
-              {item.type === 'CREDIT' ? '+' : '-'}₹{item.amount.toFixed(0)}
-            </Text>
-          </Card>
-        )}
+        renderItem={({ item }) => {
+          const { title, holdDate } = formatTxDescription(item.description);
+          return (
+            <Card style={styles.txCard}>
+              <View style={[styles.txIcon, { backgroundColor: item.type === 'CREDIT' ? colors.successLight : colors.dangerLight }]}>
+                <Ionicons
+                  name={item.type === 'CREDIT' ? 'arrow-down-outline' : 'arrow-up-outline'}
+                  size={18}
+                  color={item.type === 'CREDIT' ? colors.success : colors.danger}
+                />
+              </View>
+              <View style={{ flex: 1, marginLeft: spacing.md }}>
+                <Text style={styles.txDesc}>{title}</Text>
+                {holdDate ? (
+                  <View style={styles.holdBadge}>
+                    <Ionicons name="time-outline" size={12} color={colors.warning} />
+                    <Text style={styles.holdText}>Clears on {holdDate}</Text>
+                  </View>
+                ) : null}
+                <Text style={styles.txDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+              </View>
+              <Text style={[styles.txAmount, { color: item.type === 'CREDIT' ? colors.success : colors.danger }]}>
+                {item.type === 'CREDIT' ? '+' : '-'}₹{item.amount.toFixed(0)}
+              </Text>
+            </Card>
+          );
+        }}
       />
 
       <Modal visible={withdrawOpen} transparent animationType="slide" onRequestClose={() => setWithdrawOpen(false)}>
@@ -256,6 +287,23 @@ const styles = StyleSheet.create({
   txCard: { flexDirection: 'row', alignItems: 'center' },
   txIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   txDesc: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  holdBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.warningLight,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  holdText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+    color: colors.warning,
+  },
   txDate: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   txAmount: { fontSize: fontSize.md, fontWeight: fontWeight.bold },
   modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },

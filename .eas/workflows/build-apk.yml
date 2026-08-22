@@ -1,13 +1,13 @@
-# name: Build APK
+name: Build APK
 
-# on:
-#   push:
-#     branches: ["main"]
+on:
+  push:
+    branches: ["main"]
 
-# jobs:
-#   build_android:
-#     name: Build Android APK
-#     type: build
-#     params:
-#       platform: android
-#       profile: production-apk
+jobs:
+  build_android:
+    name: Build Android APK
+    type: build
+    params:
+      platform: android
+      profile: production-apk

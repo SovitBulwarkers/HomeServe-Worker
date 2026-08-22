@@ -396,11 +396,23 @@ export default function JobDetail() {
   const totalAmount = job.finalAmount ?? job.totalAmount ?? job.total ?? 0;
 
   const isCodPayment = checkIsCodPayment(job);
+  // NOTE: item.price from the backend is already the line total
+  // (service.basePrice * quantity — see BookingsService.computeOrderAmounts),
+  // not a per-unit price. Summing it directly (not multiplying by quantity
+  // again) is what keeps this in sync with the backend's own totalAmount.
   const itemsSubtotal = (job.items ?? []).reduce(
-    (sum, item) => sum + (item.price ?? 0) * (item.quantity ?? 1),
+    (sum, item) => sum + (item.price ?? 0),
     0,
   );
   const baseAmount = itemsSubtotal > 0 ? itemsSubtotal : (job.totalAmount ?? totalAmount);
+
+  const approvedExtrasTotal =
+    (job.extraCharges ?? []).filter((ch) => ch.status === 'APPROVED').reduce((sum, ch) => sum + (ch.amount || 0), 0) +
+    (job.extraTimeRequests ?? []).filter((t) => t.status === 'APPROVED').reduce((sum, t) => sum + (t.amount || 0), 0);
+  // Base + approved extras, before tax/discount — lets the worker check
+  // the arithmetic that leads to the final total, using only figures the
+  // backend actually returned for this booking.
+  const subtotalBeforeTaxAndDiscount = baseAmount + approvedExtrasTotal;
 
   const isBookingPaidOnline =
     !isCodPayment &&
@@ -413,8 +425,17 @@ export default function JobDetail() {
   const approvedExtraCharges = (job.extraCharges ?? []).filter((ch) => ch.status === 'APPROVED');
   const approvedExtraTime = (job.extraTimeRequests ?? []).filter((t) => t.status === 'APPROVED');
 
+  // A CASH-method extra charge can be split: part collected in cash
+  // on-site (ch.cashCollected), the rest paid ONLINE by the customer
+  // through the app. That online remainder is not cash the worker needs
+  // to collect — it's excluded from "unpaid" totals and from the
+  // cash-collection prompt below, so the worker isn't asked to chase
+  // money that's already been credited or is pending via the gateway.
+  const isSplitOnlinePending = (ch: { paymentStatus?: string; cashCollected?: number }) =>
+    ch.paymentStatus === 'PENDING' && (ch.cashCollected ?? 0) > 0;
+
   const unpaidExtraCharges = approvedExtraCharges.filter(
-    (ch) => ch.paymentStatus !== 'PAID' && !isBookingPaidOnline
+    (ch) => ch.paymentStatus !== 'PAID' && !isBookingPaidOnline && !isSplitOnlinePending(ch)
   );
   const unpaidExtraTime = approvedExtraTime.filter(
     (t) => t.paymentStatus !== 'PAID' && (t.amount ?? 0) > 0 && !isBookingPaidOnline
@@ -903,21 +924,32 @@ export default function JobDetail() {
         <Card style={styles.projectCard}>
           <Text style={styles.cardSectionTitle}>Requested Services</Text>
 
-          {(job.items ?? []).map((item, idx) => (
-            <View key={item.id ?? idx} style={styles.serviceItemRow}>
-              <View style={styles.serviceIconCircle}>
-                <Ionicons name="construct-outline" size={18} color={colors.primary} />
+          {(job.items ?? []).map((item, idx) => {
+            // item.price is the line total the backend computed
+            // (unit price × quantity) — derive the unit price for display
+            // rather than inventing one, so it's exact even with rounding.
+            const lineTotal = item.price ?? 0;
+            const qty = item.quantity ?? 1;
+            const unitPrice = qty > 0 ? lineTotal / qty : lineTotal;
+            return (
+              <View key={item.id ?? idx} style={styles.serviceItemRow}>
+                <View style={styles.serviceIconCircle}>
+                  <Ionicons name="construct-outline" size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.serviceItemName}>{item.service?.name ?? 'Service item'}</Text>
+                  {item.service?.description ? (
+                    <Text style={styles.serviceItemDesc} numberOfLines={1}>{item.service.description}</Text>
+                  ) : null}
+                  {qty > 1 ? (
+                    <Text style={styles.breakdownSubText}>₹{unitPrice.toFixed(2)} × {qty}</Text>
+                  ) : null}
+                </View>
+                <Text style={styles.serviceQtyText}>x{qty}</Text>
+                <Text style={styles.servicePriceText}>₹{lineTotal.toFixed(0)}</Text>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.serviceItemName}>{item.service?.name ?? 'Service item'}</Text>
-                {item.service?.description ? (
-                  <Text style={styles.serviceItemDesc} numberOfLines={1}>{item.service.description}</Text>
-                ) : null}
-              </View>
-              <Text style={styles.serviceQtyText}>x{item.quantity}</Text>
-              <Text style={styles.servicePriceText}>₹{(item.price ?? totalAmount).toFixed(0)}</Text>
-            </View>
-          ))}
+            );
+          })}
         </Card>
 
         {/* PAYMENT DETAILS CARD */}
@@ -951,13 +983,17 @@ export default function JobDetail() {
             </Text>
           </View>
 
+
           {/* Extra Charges */}
           {(job.extraCharges ?? []).map((ch, idx) => {
             const isApproved = ch.status === 'APPROVED';
             const isPending = ch.status === 'PENDING';
             const isRejected = ch.status === 'REJECTED';
             const isPaid = ch.paymentStatus === 'PAID' || (isApproved && job.status === 'COMPLETED' && !isCodPayment);
-            const isUnpaid = isApproved && !isPaid;
+            const cashPortion = ch.cashCollected ?? 0;
+            const onlinePortion = Math.max((ch.amount || 0) - cashPortion, 0);
+            const splitOnlinePending = isApproved && isSplitOnlinePending(ch);
+            const isUnpaid = isApproved && !isPaid && !splitOnlinePending;
 
             return (
               <View key={ch.id ?? idx} style={[styles.paymentDetailRow, { alignItems: 'flex-start', marginVertical: 2 }]}>
@@ -966,7 +1002,7 @@ export default function JobDetail() {
                     <Text style={styles.paymentDetailLabel}>Extra: {ch.label}</Text>
                     {isApproved ? (
                       <StatusPill
-                        label={isPaid ? 'APPROVED · PAID' : 'APPROVED · UNPAID'}
+                        label={isPaid ? 'APPROVED · PAID' : splitOnlinePending ? 'APPROVED · PART PAID' : 'APPROVED · UNPAID'}
                         tone={isPaid ? 'success' : 'warning'}
                       />
                     ) : isPending ? (
@@ -979,6 +1015,8 @@ export default function JobDetail() {
                     {isApproved
                       ? isPaid
                         ? 'Approved & payment settled'
+                        : splitOnlinePending
+                        ? `₹${cashPortion.toFixed(2)} collected in cash · ₹${onlinePortion.toFixed(2)} pending online from customer`
                         : 'Approved by customer (Payment pending cash/online)'
                       : isPending
                       ? 'Pending customer approval in app'
@@ -993,6 +1031,14 @@ export default function JobDetail() {
                       <Ionicons name="cash-outline" size={13} color="#065F46" />
                       <Text style={styles.markCashReceivedText}>Mark Cash Received (₹{ch.amount.toFixed(2)})</Text>
                     </Pressable>
+                  ) : null}
+                  {splitOnlinePending ? (
+                    <View style={[styles.markCashReceivedBtn, { backgroundColor: '#FEF3C7' }]}>
+                      <Ionicons name="time-outline" size={13} color="#92400E" />
+                      <Text style={[styles.markCashReceivedText, { color: '#92400E' }]}>
+                        Awaiting ₹{onlinePortion.toFixed(2)} online payment
+                      </Text>
+                    </View>
                   ) : null}
                   {ch.photos?.length ? (
                     <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
@@ -1083,10 +1129,21 @@ export default function JobDetail() {
             );
           })}
 
+          {/* Subtotal — base + approved extras, before GST/discount, so the
+              worker can see how the final total is actually derived. */}
+          {approvedExtrasTotal > 0 ? (
+            <View style={styles.paymentDetailRow}>
+              <Text style={[styles.paymentDetailLabel, { fontWeight: fontWeight.semibold }]}>Subtotal</Text>
+              <Text style={[styles.paymentDetailValue, { fontWeight: fontWeight.semibold }]}>
+                ₹{subtotalBeforeTaxAndDiscount.toFixed(2)}
+              </Text>
+            </View>
+          ) : null}
+
           {/* Taxes & Fees */}
           {job.taxAmount && job.taxAmount > 0 ? (
             <View style={styles.paymentDetailRow}>
-              <Text style={styles.paymentDetailLabel}>Taxes & Service Fees</Text>
+              <Text style={styles.paymentDetailLabel}>GST</Text>
               <Text style={styles.paymentDetailValue}>+₹{job.taxAmount.toFixed(2)}</Text>
             </View>
           ) : null}

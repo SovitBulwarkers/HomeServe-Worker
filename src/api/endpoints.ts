@@ -187,6 +187,13 @@ export interface Job {
     photos?: string[];
     status: "PENDING" | "APPROVED" | "REJECTED";
     paymentStatus?: "NOT_REQUIRED" | "PENDING" | "PAID";
+    // How much of `amount` the customer already paid/will pay in cash
+    // on-site (CASH-method bookings only). When this is > 0 and
+    // paymentStatus is "PENDING", the remainder (amount - cashCollected)
+    // is owed by the customer ONLINE via the app, not in cash — the
+    // worker should not be prompted to collect it again. 0/undefined
+    // means the ordinary all-cash case: the full amount is owed in cash.
+    cashCollected?: number;
     createdAt: string;
   }[];
   extraTimeRequests?: {
